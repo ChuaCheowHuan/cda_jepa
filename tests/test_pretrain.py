@@ -20,11 +20,13 @@ import numpy as np
 import pytest
 import torch
 
-from gym_continuousDoubleAuction.config_loader import group
 from gym_continuousDoubleAuction.envs.continuousDoubleAuction_env import (
     continuousDoubleAuctionEnv,
 )
-from gym_continuousDoubleAuction.train import pretrain as pretrain_pkg
+from cda_jepa import pretrain as pretrain_pkg
+from cda_jepa.encoder import JEPA_DEFAULTS
+
+from conftest import JEPA
 from gym_continuousDoubleAuction.train.model.encoders import (
     encoder_fingerprint,
     encoder_settings,
@@ -52,7 +54,7 @@ def spaces():
 
 @pytest.fixture(scope="module")
 def spec_block():
-    return group("train_config.json", "encoder")["encoder_specs"]["jepa"]
+    return dict(JEPA_DEFAULTS)
 
 
 @pytest.fixture(scope="module")
@@ -73,6 +75,7 @@ def trained(spaces, corpus, spec_block):
         batch_size=64,
         log_every=STEPS // 2,
         seed=0,
+        encoder_type=JEPA,
     )
 
 
@@ -111,6 +114,7 @@ class TestTheLoop:
             batch_size=32,
             log_every=10,
             seed=0,
+            encoder_type=JEPA,
         )
         encoder = module.encoder.actor_encoder
 
@@ -174,9 +178,10 @@ def saved(spaces, corpus, spec_block, tmp_path_factory):
         batch_size=32,
         log_every=10,
         seed=0,
+        encoder_type=JEPA,
     )
     path = str(tmp_path_factory.mktemp("pretrained"))
-    pretrain_pkg.save(module, path, "jepa", spec_block)
+    pretrain_pkg.save(module, path, JEPA, spec_block)
     return path, module
 
 
@@ -194,7 +199,7 @@ class TestTheFingerprintIdentifiesTheArchitecture:
     """
 
     def _config_block(self):
-        return group("train_config.json", "encoder")["encoder_specs"]["jepa"]
+        return dict(JEPA_DEFAULTS)
 
     def test_none_and_the_config_block_agree(self):
         """The case that made pretrained weights unloadable.
@@ -203,18 +208,18 @@ class TestTheFingerprintIdentifiesTheArchitecture:
         training run built from that same block must accept its weights.
         """
         assert fingerprints_match(
-            encoder_fingerprint("jepa", None),
-            encoder_fingerprint("jepa", self._config_block()),
+            encoder_fingerprint(JEPA, None),
+            encoder_fingerprint(JEPA, self._config_block()),
         )
 
     def test_omitting_a_key_at_its_default_still_matches(self):
         block = self._config_block()
         partial = {k: v for k, v in block.items() if k != "d_model"}
 
-        assert encoder_settings("jepa", partial) == encoder_settings("jepa", block)
+        assert encoder_settings(JEPA, partial) == encoder_settings(JEPA, block)
         assert fingerprints_match(
-            encoder_fingerprint("jepa", partial),
-            encoder_fingerprint("jepa", block),
+            encoder_fingerprint(JEPA, partial),
+            encoder_fingerprint(JEPA, block),
         )
 
     def test_a_real_change_still_does_not_match(self):
@@ -222,14 +227,14 @@ class TestTheFingerprintIdentifiesTheArchitecture:
         block = self._config_block()
 
         assert not fingerprints_match(
-            encoder_fingerprint("jepa", block),
-            encoder_fingerprint("jepa", {**block, "d_model": 256}),
+            encoder_fingerprint(JEPA, block),
+            encoder_fingerprint(JEPA, {**block, "d_model": 256}),
         )
 
     def test_a_defaulted_value_is_carried_in_the_hash(self):
         """The false-match half: a later edit to *_DEFAULTS must move this."""
         partial = {k: v for k, v in self._config_block().items() if k != "d_model"}
-        keys = dict(encoder_fingerprint("jepa", partial)["encoder_spec"])
+        keys = dict(encoder_fingerprint(JEPA, partial)["encoder_spec"])
 
         assert "d_model" in keys
 
@@ -242,7 +247,7 @@ class TestTheFingerprintIdentifiesTheArchitecture:
         block = self._config_block()
         foreign = encoder_fingerprint("transformer", block)
 
-        assert not fingerprints_match(foreign, encoder_fingerprint("jepa", block))
+        assert not fingerprints_match(foreign, encoder_fingerprint(JEPA, block))
 
 
 class TestPretrainResolvesItsSpec:
@@ -259,10 +264,10 @@ class TestPretrainResolvesItsSpec:
                 corpus,
                 obs_space,
                 act_space,
-                encoder_type="jepa",
                 encoder_spec={"world_model": True},
                 steps=1,
                 batch_size=4,
+                encoder_type=JEPA,
             )
 
 
@@ -284,8 +289,8 @@ class TestTheCheckpoint:
         `encoder.pt` is written, leaving a checkpoint the probe refuses (#316)."""
         _path, module = saved
         monkeypatch.chdir(tmp_path)
-        pretrain_pkg.save(module, os.path.join("pretrained", "jepa"), "jepa", spec_block)
-        written = tmp_path / "pretrained" / "jepa"
+        pretrain_pkg.save(module, os.path.join("pretrained", JEPA), JEPA, spec_block)
+        written = tmp_path / "pretrained" / JEPA
         assert (written / pretrain_pkg.WEIGHTS_FILE).is_file()
         assert (written / pretrain_pkg.FINGERPRINT_FILE).is_file()
         assert (written / pretrain_pkg.MODULE_SUBDIR).is_dir()
@@ -303,7 +308,7 @@ class TestTheCheckpoint:
         path, _module = saved
         with open(os.path.join(path, pretrain_pkg.FINGERPRINT_FILE)) as handle:
             stored = json.load(handle)
-        assert stored["encoder_type"] == "jepa"
+        assert stored["encoder_type"] == JEPA
         assert stored["encoder_spec"]["d_model"] == spec_block["d_model"]
 
     def test_loading_reproduces_the_weights(self, saved, spaces, spec_block, corpus):
@@ -311,8 +316,8 @@ class TestTheCheckpoint:
         to the module they came from."""
         path, source = saved
         obs_space, act_space = spaces
-        target = features_module.build_module(obs_space, act_space, "jepa", spec_block)
-        pretrain_pkg.load_into(target, path, "jepa", spec_block)
+        target = features_module.build_module(obs_space, act_space, JEPA, spec_block)
+        pretrain_pkg.load_into(target, path, JEPA, spec_block)
 
         assert np.allclose(
             features_module.latents(source, corpus),
@@ -325,7 +330,7 @@ class TestTheCheckpoint:
         error several frames away - or, worse, as a partial load."""
         path, _module = saved
         with pytest.raises(ValueError, match="does not match"):
-            pretrain_pkg.verify_fingerprint(path, "jepa", {**spec_block, "d_model": 256})
+            pretrain_pkg.verify_fingerprint(path, JEPA, {**spec_block, "d_model": 256})
 
     def test_a_different_encoder_type_is_refused(self, saved, spec_block):
         path, _module = saved
@@ -335,7 +340,7 @@ class TestTheCheckpoint:
     def test_a_directory_that_is_not_a_checkpoint_raises(self, tmp_path, spec_block):
         (tmp_path / "unrelated.txt").write_text("not a checkpoint")
         with pytest.raises(FileNotFoundError, match="not a pretrain checkpoint"):
-            pretrain_pkg.verify_fingerprint(str(tmp_path), "jepa", spec_block)
+            pretrain_pkg.verify_fingerprint(str(tmp_path), JEPA, spec_block)
 
 
 class TestTrainingStartsFromIt:
@@ -348,7 +353,7 @@ class TestTrainingStartsFromIt:
     def _built(self, path, spaces, **kwargs):
         obs_space, act_space = spaces
         return build_trainable_module_spec(
-            obs_space, act_space, encoder_type="jepa", **kwargs
+            obs_space, act_space, encoder_type=JEPA, **kwargs
         ).build()
 
     def test_a_built_module_carries_the_pretrained_trunk(self, saved, spaces):
@@ -393,8 +398,8 @@ class TestTrainingStartsFromIt:
             build_trainable_module_spec(
                 obs_space,
                 act_space,
-                encoder_type="jepa",
-                encoder_specs={"jepa": {**spec_block, "d_model": 64}},
+                encoder_type=JEPA,
+                encoder_specs={JEPA: {**spec_block, "d_model": 64}},
                 pretrained_path=path,
             )
 
@@ -415,7 +420,7 @@ class TestTrainingStartsFromIt:
         path, _module = saved
         obs_space, act_space = spaces
         spec = build_trainable_module_spec(
-            obs_space, act_space, encoder_type="jepa", pretrained_path=path
+            obs_space, act_space, encoder_type=JEPA, pretrained_path=path
         )
         assert "pretrained_path" not in spec.model_config.encoder_spec
         assert spec.model_config.pretrained_path == path
@@ -460,7 +465,7 @@ class TestAnUnusableRunIsNotSaved:
 
     @pytest.fixture
     def run_main(self, monkeypatch, trained, corpus, tmp_path):
-        from gym_continuousDoubleAuction.train.pretrain import __main__ as cli
+        from cda_jepa.pretrain import __main__ as cli
 
         module, _ = trained
         monkeypatch.setattr(corpus_module, "from_rollouts", lambda **kw: corpus)

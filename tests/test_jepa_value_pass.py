@@ -16,11 +16,9 @@ import torch
 from gym_continuousDoubleAuction.envs.continuousDoubleAuction_env import (
     continuousDoubleAuctionEnv,
 )
-from gym_continuousDoubleAuction.test.test_encoder_architectures import (
-    build_module,
-    sample_batch,
-)
-from gym_continuousDoubleAuction.train.model.encoders import jepa as jepa_module
+from conftest import JEPA, build_module, sample_batch
+
+from cda_jepa import encoder as jepa_module
 
 
 @pytest.fixture(scope="module")
@@ -31,7 +29,7 @@ def spaces():
 
 
 def _shared_module(spaces, **spec):
-    module = build_module(spaces, "jepa", spec={"ema_decay": 0.9, **spec}, vf_share_layers=True)
+    module = build_module(spaces, JEPA, spec={"ema_decay": 0.9, **spec}, vf_share_layers=True)
     module.train()
     encoder = getattr(module.encoder, "encoder", None) or module.encoder.actor_encoder
     return module, encoder

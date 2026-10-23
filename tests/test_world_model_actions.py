@@ -13,7 +13,8 @@ from gym_continuousDoubleAuction.envs.continuousDoubleAuction_env import (
     continuousDoubleAuctionEnv,
 )
 from gym_continuousDoubleAuction.envs.exchg.action_helper import ACTION_KEYS
-from gym_continuousDoubleAuction.train.model.encoders import jepa
+
+from cda_jepa import encoder as jepa
 
 
 @pytest.fixture(scope="module")
