@@ -60,7 +60,6 @@ way. `JEPA` in conftest is the name to build.
 | `test_world_model_actions.py` | The world model embeds every action head |
 | `test_pretrain.py` | The pretrainer: the loop, collapse, the checkpoint, its guard, the CLI |
 | `test_wiring.py` | A real gym-CDA `Algorithm`: the loss terms reach the optimiser, the NEXT_OBS connector is conditional, other encoders are unaffected |
-| `test_equivalence.py` | The gate for removing gym-CDA's `jepa`: from the same state on the same episodes, this package and gym-CDA's encoder give identical weights, EMA target, optimiser state and `jepa_*` metrics, with the world model off and on and the trunk shared or not; a control shows it can fail. Runs only against gym-CDA 2.2, which still ships `jepa`; skipped against 2.3 and later |
 | `test_moved_checks.py` | Checks from other gym-CDA test files: one-row batches give finite losses (#242), the pooling tuple is gym-CDA's, pretraining builds in the corpus's book mode (#187) |
 | `test_packaging.py` | The installed forks equal the submodules; the entry points |
 | `test_docs.py` | The settings table matches `JEPA_DEFAULTS`, and every relative link resolves |
