@@ -41,7 +41,7 @@ Selecting `jepa` without `"jepa"` in `extensions_enabled` is refused.
 
 | | |
 |---|---|
-| Tokenisation | gym-CDA's `grid` book mode, `tokenization` `both`, `time` or `level` |
+| Tokenisation | either gym-CDA book mode (`grid`, `levels`); `tokenization` `both`, `time` or `level` |
 | Learners | any number; the loss is computed on the actor's encoder only |
 | Composition | `CDAJEPALearner` subclasses gym-CDA's PPO Learner and keeps the MoE term; other extensions' mixins (CBP) wrap it |
 | World model | `"world_model": true` adds `Columns.NEXT_OBS` to the train batch; nothing else does |
