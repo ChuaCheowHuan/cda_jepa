@@ -8,7 +8,8 @@ version = "0.1.0"
 description = "JEPA for gym-continuousDoubleAuction, as an installable training extension."
 readme = "README.md"
 requires-python = ">=3.12"
-license-files = ["NOTICE", "third_party/ijepa/LICENSE", "third_party/lejepa/LICENSE"]
+# MIT for this package; the forks it installs are CC BY-NC 4.0 (NOTICE).
+license-files = ["LICENSE", "NOTICE", "third_party/ijepa/LICENSE", "third_party/lejepa/LICENSE"]
 # gym-CDA is not on PyPI: install it first (see README). 2.2 is the first with the
 # `gym_cda.encoders` entry point. ijepa and lejepa are git submodules shipped
 # unchanged (see [tool.setuptools]), so the dependencies their shipped modules

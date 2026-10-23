@@ -1,0 +1,17 @@
+cda_jepa
+Copyright (c) 2019 Chua Cheow Huan. MIT License (LICENSE).
+
+This package installs, unchanged, code from two other repositories. Their licence is not MIT:
+
+  src/     I-JEPA, from https://github.com/ChuaCheowHuan/ijepa
+           (a fork of https://github.com/facebookresearch/ijepa)
+           Copyright (c) Meta Platforms, Inc. and affiliates.
+           Creative Commons Attribution-NonCommercial 4.0 International.
+           See third_party/ijepa/LICENSE.
+
+  lejepa/  LeJEPA, from https://github.com/ChuaCheowHuan/lejepa
+           (a fork of https://github.com/rbalestr-lab/lejepa)
+           Creative Commons Attribution-NonCommercial 4.0 International.
+           See third_party/lejepa/LICENSE.
+
+CC BY-NC 4.0 does not permit commercial use of that code. Using this package means using it.
