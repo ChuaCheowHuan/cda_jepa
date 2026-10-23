@@ -1,4 +1,9 @@
-# 22. JEPA: What It Is and How It Could Serve This Project
+# JEPA: What It Is and How It Serves gym-CDA
+
+> Moved from gym-CDA's `docs/22_jepa_integration.md` with the encoder, history included.
+> Section numbers and the links into gym-CDA's docs are as they were there; code paths now
+> read `cda_jepa/encoder.py` for `train/model/encoders/jepa.py`, `cda_jepa/learner.py` for
+> `train/model/jepa_learner.py` and `cda_jepa/pretrain/` for `train/pretrain/`.
 
 A research note, not a change. It asks one question: **does the Joint-Embedding Predictive
 Architecture family have anything to offer a closed, zero-sum, multi-agent limit-order-book
@@ -8,18 +13,18 @@ The answer is a qualified yes, with the qualification doing real work. JEPA is a
 *this observation* and a poor fit for *this reward*, and three of the four proposals below are
 designed to exploit the first without depending on the second.
 
-Related: [05_observation_space.md](05_observation_space.md) (what would be encoded),
-[12_perspective_rl_researcher.md](12_perspective_rl_researcher.md) §2, §4, §6, §7 (the defects
-this interacts with), [29_fixed_issues.md](29_fixed_issues.md)
-(S1-1, S1-2, S1-3, S2-6), [18_configuration.md](18_configuration.md) §5.4–5.5 (the encoder group
-and the comparison protocol), [10_testing.md](10_testing.md) §6.4 (the contract a new encoder
+Related: [05_observation_space.md](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/05_observation_space.md) (what would be encoded),
+[12_perspective_rl_researcher.md](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/12_perspective_rl_researcher.md) §2, §4, §6, §7 (the defects
+this interacts with), [29_fixed_issues.md](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/29_fixed_issues.md)
+(S1-1, S1-2, S1-3, S2-6), [18_configuration.md](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/18_configuration.md) §5.4–5.5 (the encoder group
+and the comparison protocol), [10_testing.md](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/10_testing.md) §6.4 (the contract a new encoder
 must meet).
 
 > **Status.** This proposal was written while S1-1, S1-2, S1-3 and S2-6 were open. All four are
-> fixed: the critic learns ([S1-1](29_fixed_issues.md#s1-1--ppos-critic-receives-zero-gradient-verified-fixed)), the observation carries private state including the agent's own
-> resting orders ([S1-2](29_fixed_issues.md#s1-2--observation-contains-no-private-state-verified-fixed)), passivity is no longer the joint optimum ([S1-3](29_fixed_issues.md#s1-3--doing-nothing-is-a-dominant-strategy-verified-fixed)), and the stack is
-> normalised by one midpoint ([S2-6](29_fixed_issues.md#s2-6--every-frame-in-the-observation-stack-has-a-different-normalizer-verified-fixed)). Where the argument below cites them, it describes the state
-> the proposal was written against; the defects themselves are in [29](29_fixed_issues.md).
+> fixed: the critic learns ([S1-1](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/29_fixed_issues.md#s1-1--ppos-critic-receives-zero-gradient-verified-fixed)), the observation carries private state including the agent's own
+> resting orders ([S1-2](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/29_fixed_issues.md#s1-2--observation-contains-no-private-state-verified-fixed)), passivity is no longer the joint optimum ([S1-3](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/29_fixed_issues.md#s1-3--doing-nothing-is-a-dominant-strategy-verified-fixed)), and the stack is
+> normalised by one midpoint ([S2-6](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/29_fixed_issues.md#s2-6--every-frame-in-the-observation-stack-has-a-different-normalizer-verified-fixed)). Where the argument below cites them, it describes the state
+> the proposal was written against; the defects themselves are in [29](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/29_fixed_issues.md).
 
 ---
 
@@ -89,11 +94,11 @@ Five reasons, in descending order of strength.
 
 ### 2.1 The observation is already the grid JEPA masks
 
-[`tokenize.py`](../gym_continuousDoubleAuction/train/model/encoders/tokenize.py) turns the book part of the
+[`tokenize.py`](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/gym_continuousDoubleAuction/train/model/encoders/tokenize.py) turns the book part of the
 observation - 192 of its 233 floats, the private tail having been split off first - into
 `(B, n_hist × (2 k_rows + 2), 6)` tokens (one per tick-offset cell plus a global token per
 snapshot; `(B, n_hist × (k_rows + 1), 8)` in `levels` mode) whose position is a `(time, cell)`
-pair, and [`transformer.py`](../gym_continuousDoubleAuction/train/model/encoders/transformer.py)
+pair, and [`transformer.py`](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/gym_continuousDoubleAuction/train/model/encoders/transformer.py)
 already carries a **two-axis learned positional embedding** for exactly that grid. A JEPA
 predictor needs precisely one thing the encoder does not: the ability to say "predict the latent
 at position `(t, level)`". That is `time_embedding(t) + level_embedding(level)` — already
@@ -114,7 +119,7 @@ Every one of those is a microstructure question, and none of them needs a reward
 
 The standard alternative to JEPA is a masked autoencoder that reconstructs the hidden input. This
 repo has already measured why that would fail. From
-[18](18_configuration.md) §5.4, the per-channel standard deviations of a `both` token
+[18](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/18_configuration.md) §5.4, the per-channel standard deviations of a `both` token
 `[bid_price, bid_size, ask_price, ask_size]` over 40 real steps are:
 
 ```
@@ -134,7 +139,7 @@ argument for JEPA specifically, as opposed to self-supervision generally, in thi
 ### 2.3 JEPA does not need the reward
 
 When this was written the reward carried almost no signal: S1-1 left the critic flat and S1-3 made
-passivity the joint optimum (both fixed, [29](29_fixed_issues.md#22-23--the-reward-carried-almost-no-signal)). One limit still holds: the default budget is
+passivity the joint optimum (both fixed, [29](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/29_fixed_issues.md#22-23--the-reward-carried-almost-no-signal)). One limit still holds: the default budget is
 ~262k env steps against a realistic need of 10⁷–10⁸ (§7), so the policy gradient reaching the
 encoder is a high-variance signal in small quantities. A latent-prediction loss is **dense (every token, every
 step), always defined, and independent of the reward being correct**. It is the one training
@@ -144,7 +149,7 @@ That cuts both ways, and §3 is about the other way.
 
 ### 2.4 The auxiliary-loss seam already exists, built and documented
 
-[`moe_learner.py`](../gym_continuousDoubleAuction/train/model/moe_learner.py) solves a problem
+[`moe_learner.py`](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/gym_continuousDoubleAuction/train/model/moe_learner.py) solves a problem
 that took care to get right: `ActorCriticEncoder._forward` keeps only `ENCODER_OUT` and discards
 every other key an encoder returns, so an auxiliary term cannot ride out of the encoder. The
 existing chain is:
@@ -163,12 +168,12 @@ second parallel chain named `jepa_*`. This is a refactor the JEPA work would pay
 it would impose.
 
 How a Learner is composed today, and the method to override to add a loss term or replace PPO's,
-is described once, in [30_extensions.md](30_extensions.md) §3–§4; this section is the JEPA-specific
+is described once, in [30_extensions.md](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/30_extensions.md) §3–§4; this section is the JEPA-specific
 argument.
 
 ### 2.5 An unlabelled corpus already exists, in a queryable format
 
-[`episode_record.py`](../gym_continuousDoubleAuction/train/episode_record.py) writes one Parquet
+[`episode_record.py`](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/gym_continuousDoubleAuction/train/episode_record.py) writes one Parquet
 row per `(episode, step, agent)` with a declared schema that includes:
 
 ```
@@ -179,7 +184,7 @@ obs        : list<float> action : list<double>
 Sorted by `(episode_id, step)` that is exactly `(o_t, a_t, o_{t+1})` — the tuple a JEPA world
 model trains on — readable by `ray.data.read_parquet`, pandas or DuckDB without this package
 installed. Additional reward-free data is free from
-[`CDA_rand.py`](../gym_continuousDoubleAuction/CDA_rand.py), which runs uniformly-random agents
+[`CDA_rand.py`](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/gym_continuousDoubleAuction/CDA_rand.py), which runs uniformly-random agents
 against the real matching engine.
 
 The pretraining corpus is not a thing that would need building. It is a thing that would need
@@ -193,7 +198,7 @@ Four objections. None is fatal; all change what may honestly be claimed.
 
 ### 3.1 A better encoder makes a better do-nothing agent — **prerequisite met**
 
-> **Status.** S1-1 and S1-3 are fixed ([S1-1](29_fixed_issues.md#s1-1--ppos-critic-receives-zero-gradient-verified-fixed), [S1-3](29_fixed_issues.md#s1-3--doing-nothing-is-a-dominant-strategy-verified-fixed)), so this no longer blocks
+> **Status.** S1-1 and S1-3 are fixed ([S1-1](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/29_fixed_issues.md#s1-1--ppos-critic-receives-zero-gradient-verified-fixed), [S1-3](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/29_fixed_issues.md#s1-3--doing-nothing-is-a-dominant-strategy-verified-fixed)), so this no longer blocks
 > anything. It is kept because it is the reason the ordering in §7 is what it is, and because the
 > *measurement* it warns about is still unmade.
 
@@ -202,7 +207,7 @@ that perfectly represents book dynamics, attached to a policy being paid to stop
 to stop trading with an excellent internal model of what it is declining to do. Any measured
 "win" would have been an artefact.
 
-This is the same trap [18](18_configuration.md) §5.5 already warns about for architecture
+This is the same trap [18](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/18_configuration.md) §5.5 already warns about for architecture
 comparisons, one level deeper. **S1-1 and S1-3 were prerequisites for the RL-facing proposals
 (§4.3, §4.4), and were not prerequisites for the evaluation-facing ones (§4.1, §4.2)** — which is
 why the probe harness could be built and used first. The gate is now open and unwalked: no
@@ -212,14 +217,14 @@ better *trader*. §5.5's protocol is what would answer it.
 ### 3.2 The observation carries private state
 
 S1-2 is fixed: every agent receives its own 41-float private block - inventory, cash, NAV, drawdown,
-VWAP, time remaining, its own resting orders and the action mask ([05](05_observation_space.md) §1.0;
+VWAP, time remaining, its own resting orders and the action mask ([05](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/05_observation_space.md) §1.0;
 the defect, and what it meant for a world model, is in
-[29](29_fixed_issues.md#22-32--the-observation-had-no-private-state)).
+[29](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/29_fixed_issues.md#22-32--the-observation-had-no-private-state)).
 
 - **Not a defect.** An action-conditioned predictor (§4.3) conditioned on *this* agent's action is
   fitting the conditional expectation over seven unobserved opponent actions. Its loss has a nonzero
   floor, and that floor is the residual multi-agent stochasticity rather than underfitting — §33.4
-  of [17](17_changelog.md) says the same about the shipped world model.
+  of [17](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/17_changelog.md) says the same about the shipped world model.
 - **What it makes possible.** With the private block in place, action-conditioning is the
   materially more interesting object it promised to be: "what does the book — and my position —
   look like after I send this order" is a *market-impact* model, which is the quantity the project
@@ -228,13 +233,13 @@ the defect, and what it meant for a world model, is in
 ### 3.3 One normaliser per stack, so a predictive target is clean
 
 S2-6 is fixed: the whole stack is normalised by the current `M_t`, so the same price has the same
-encoding in every frame ([05](05_observation_space.md) §4). Time-axis masking (§4.2) therefore
+encoding in every frame ([05](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/05_observation_space.md) §4). Time-axis masking (§4.2) therefore
 predicts the market, not a renormalisation. Why that mattered is in
-[29](29_fixed_issues.md#22-33--the-per-frame-normalizer-contaminated-a-predictive-target).
+[29](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/29_fixed_issues.md#22-33--the-per-frame-normalizer-contaminated-a-predictive-target).
 
 ### 3.4 The scale is small, and JEPA's evidence is at scale
 
-88 tokens of 6 channels; encoders of 225k–1.4M parameters ([18](18_configuration.md) §5.5). The
+88 tokens of 6 channels; encoders of 225k–1.4M parameters ([18](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/18_configuration.md) §5.5). The
 JEPA results that made the architecture interesting are at internet scale — V-JEPA 2 on over a
 million hours of video. The nearest published analogues in this domain are small on purpose:
 Fin-JEPA is a 367K-parameter PriceEncoder plus causal-transformer predictor over daily equity
@@ -270,7 +275,7 @@ mindmap
 
 ### 4.1 Proposal A — JEPA as an evaluation instrument (no training changes)
 
-[10](10_testing.md) §7 records the gap plainly: *"No encoder is tested for whether it learns…
+[10](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/10_testing.md) §7 records the gap plainly: *"No encoder is tested for whether it learns…
 Nothing runs long enough to say whether the transformer or the LSTM beats the MLP, which is the
 question the `encoder` group exists to answer."* And §3.1 above says the reward cannot settle that
 question while S1-1 stands.
@@ -284,13 +289,13 @@ A JEPA-style latent-prediction score settles it **without** the reward:
 3. Report the probe's score.
 
 This is cheap (no PPO involvement), reward-free (immune to S1-1/S1-3), and it converts
-[18](18_configuration.md) §5.5 from a protocol with no metric into one with a metric. It also
+[18](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/18_configuration.md) §5.5 from a protocol with no metric into one with a metric. It also
 serves the project's stated goal directly: §1.3 frames this as a *microstructure emergence study*,
 and emergence is currently reported only through NAV and trade counts. A linear probe for
 order-flow imbalance or price impact on a learned latent is evidence about what the agents have
 come to represent — which is a stronger claim about emergence than a P&L table.
 
-**Implemented.** `train/probe/`, documented in [23_probe_harness.md](23_probe_harness.md). No
+**Implemented.** `train/probe/`, documented in [23_probe_harness.md](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/23_probe_harness.md). No
 changes to `train.py`, the encoder registry, or the league — it builds encoders through
 `build_trainable_module_spec`, freezes them, and reads them.
 
@@ -381,9 +386,9 @@ learner_class_path=…)`. Nothing else declares either, so every previously regi
 resolves to exactly the classes it resolved to before — which is what made this additive.
 
 **With Continual Backprop on.** CBP (now the `cbp` extension in the
-[cda-cbp](https://github.com/ChuaCheowHuan/cda_cbp) package, [25](25_continual_backprop.md)) does
+[cda-cbp](https://github.com/ChuaCheowHuan/cda_cbp) package, [25](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/25_continual_backprop.md)) does
 not take the encoder's Learner slot; like any extension it composes over whatever
-`learner_class_for` returned ([30](30_extensions.md) §3), so `jepa` plus CBP still takes the
+`learner_class_for` returned ([30](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/30_extensions.md) §3), so `jepa` plus CBP still takes the
 latent-prediction loss from `CDAJEPALearner`. CBP replaces units only in layers gradient descent
 maintains, which keeps it off the EMA `target_trunk`: a unit reinitialised there would never be
 updated back and would break the EMA relationship for good. The package's tests pin both.
@@ -492,7 +497,7 @@ A JEPA change that is not measured against these is not evidence.
 | Parameter count | already logged at startup | §5.5 point 4. A win at 2× the parameters is a different claim |
 | `env steps sampled` / iteration | already logged | The other half of that claim |
 
-And the protocol from [18](18_configuration.md) §5.5 applies unchanged: pin `seed`, run at least
+And the protocol from [18](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/18_configuration.md) §5.5 applies unchanged: pin `seed`, run at least
 three per architecture, separate runs never a resume, and either re-tune `lr` per architecture or
 say plainly that you did not.
 
@@ -507,7 +512,7 @@ say plainly that you did not.
 - An objective whose *structural* design discards unpredictable size jitter, which the measured
   channel statistics say is the dominant failure mode of the obvious alternative.
 - A reward-free metric for the encoder comparison the `encoder` group exists to enable and that
-  [10](10_testing.md) §7 records as untested.
+  [10](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/10_testing.md) §7 records as untested.
 - An explicit model of order → book response: a microstructure object the project is aimed at and
   currently does not produce.
 - Reuse of a seam that already exists, plus the second consumer that justifies generalising it.
@@ -515,16 +520,16 @@ say plainly that you did not.
 **What it does not buy**
 
 - Nothing about the reward or the critic. S1-1, S1-3, S2-1 and S2-3 were fixed in the reward and
-  the PPO configuration, not by an encoder ([29](29_fixed_issues.md)).
+  the PPO configuration, not by an encoder ([29](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/29_fixed_issues.md)).
 - Nothing about what is observed. A world model represents only what the observation carries; the
-  private state is there because S1-2 was fixed in the observation ([S1-2](29_fixed_issues.md#s1-2--observation-contains-no-private-state-verified-fixed)).
+  private state is there because S1-2 was fixed in the observation ([S1-2](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/29_fixed_issues.md#s1-2--observation-contains-no-private-state-verified-fixed)).
 - No large effect should be expected at 88 tokens and ~10⁵–10⁶ parameters. The comparable
   published result on financial series is a ~10% improvement over an identity baseline from a
   367K-parameter model.
 
 **The one-line verdict.** JEPA is the *right* self-supervised objective for this observation and
 the wrong first thing to spend effort on. Items 1–3 of
-[12](12_perspective_rl_researcher.md) §9 come first. But Proposal A is independent of all of them
+[12](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/12_perspective_rl_researcher.md) §9 come first. But Proposal A is independent of all of them
 and answers a question the project has already written down and cannot currently answer — so it
 is the piece worth starting.
 
@@ -534,12 +539,12 @@ is the piece worth starting.
 
 | Step | Work | Depends on | Effort |
 |---|---|---|---|
-| 0 | ~~S1-1 (`vf_clip_param` / reward scaling), S1-3 (reward sign), S2-6 (shared normalizer)~~ — **done**, see [29](29_fixed_issues.md) | — | S–M |
-| 1 | ~~**Proposal A** — offline probe harness and reward-free encoder scores~~ — **done**, see [23](23_probe_harness.md) | **nothing** | S |
+| 0 | ~~S1-1 (`vf_clip_param` / reward scaling), S1-3 (reward sign), S2-6 (shared normalizer)~~ — **done**, see [29](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/29_fixed_issues.md) | — | S–M |
+| 1 | ~~**Proposal A** — offline probe harness and reward-free encoder scores~~ — **done**, see [23](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/23_probe_harness.md) | **nothing** | S |
 | 2 | Generalise the aux-loss seam: `ENCODER_AUX_LOSS`, encoder-aware `_collect` and `get_non_inference_attributes` | — | S |
 | 3 | ~~**Proposal B** — the `jepa` encoder~~ — **done**, all three mask axes | — | M |
 | 4 | Time-axis masking in Proposal B | 0 (S2-6), 3 | S |
-| 5 | ~~**Proposal D** — offline pretraining, with a fingerprint guard~~ — **done**, see [23](23_probe_harness.md) Part 2 | 3 | M |
+| 5 | ~~**Proposal D** — offline pretraining, with a fingerprint guard~~ — **done**, see [23](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/23_probe_harness.md) Part 2 | 3 | M |
 | 6 | ~~**Proposal C** — action-conditioned world model~~ — **done**, `world_model: true` | 0, 3 | M–L |
 | 7 | Intrinsic reward from predictor error | 0, 6 | M, and only once S1-3's fix is shown to hold in training |
 
