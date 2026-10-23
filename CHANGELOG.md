@@ -2,10 +2,13 @@
 
 ## Unreleased
 
+- **The equivalence test is removed.** `tests/test_equivalence.py` compared this package with
+  gym-CDA's built-in `jepa`, which gym-CDA 2.3 and later no longer ship, so it always skipped.
+  Its result is recorded in `docs/migration.md`.
 - **Docs brought up to date.** `docs/jepa.md` and `docs/pretraining.md` name this package's files
   and `PRETRAIN_DEFAULTS` instead of gym-CDA's old paths and `cli_defaults.cda_pretrain`, and link
-  cda-cbp's note rather than gym-CDA's pointer page. `docs/development.md` says the equivalence
-  test runs only against gym-CDA 2.2 and lists the CI workflow. The README draws how the forks,
+  cda-cbp's note rather than gym-CDA's pointer page. `docs/development.md` lists the CI
+  workflow. The README draws how the forks,
   this package and gym-CDA fit.
 
 ## 0.1.0

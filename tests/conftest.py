@@ -3,8 +3,7 @@
 `JEPA` is the `encoder_type` the tests build. On a gym-CDA that no longer ships its own
 `jepa` it is `"jepa"`, served by this package. On gym-CDA 2.2, which still does, this
 package's encoder is registered beside it as the test fixture `_jepa_ext`, so every test
-here exercises the package's code and never gym-CDA's copy, and `test_equivalence.py` can
-compare the two.
+here exercises the package's code and never gym-CDA's copy.
 """
 
 import numpy as np
