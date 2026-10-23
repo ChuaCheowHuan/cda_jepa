@@ -44,5 +44,7 @@ The `jepa_*` names are unchanged ([metrics.md](metrics.md)).
 ## Training is the same
 
 Moving changed one thing in the encoder: tokens are gathered with I-JEPA's `apply_masks` instead of
-an inline `torch.gather`, which gives identical tensors. An equivalence test compares this package
-with gym-CDA's built-in `jepa` while both exist.
+an inline `torch.gather`, which gives identical tensors. `tests/test_equivalence.py` showed the two
+were the same: from the same state, on the same episodes, this package and gym-CDA's built-in `jepa`
+produced identical weights, EMA target, optimiser state and `jepa_*` metrics, with the world model
+off and on and the trunk shared or not.
