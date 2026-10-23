@@ -2,9 +2,9 @@
 
 `cda_jepa/pretrain/` trains the JEPA encoder's self-supervised objective on observations alone (no
 reward, no policy, no opponents) and writes weights a training run can start from. It is Proposal
-D of [jepa.md](jepa.md) §4.4. Moved from gym-CDA's
-[docs/23](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/23_probe_harness.md) Part 2, with its section numbers; Part 1 there
-(the probe harness, its corpus reader, and how to measure what pretraining did) stays in gym-CDA.
+D of [jepa.md](jepa.md) §4.4. It was Part 2 of gym-CDA's docs/23 and keeps those section numbers
+(§11 to §18); the probe harness, its corpus reader and how to measure what pretraining did are
+gym-CDA's [docs/23](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/23_probe_harness.md).
 
 The checkpoint format is gym-CDA's (`train/model/encoders/pretrained.py`), so gym-CDA verifies and
 loads the weights without importing this package's trainer.
@@ -29,8 +29,7 @@ python -m cda_jepa.pretrain --steps 300
 python -m cda_jepa.pretrain --parquet episode_data/<run_id> --steps 2000
 ```
 
-Defaults live in `PRETRAIN_DEFAULTS` in [`cda_jepa/config.py`](../cda_jepa/config.py) (they were
-gym-CDA's `cli_defaults.cda_pretrain`):
+Defaults live in `PRETRAIN_DEFAULTS` in [`cda_jepa/config.py`](../cda_jepa/config.py):
 `out_dir` (`pretrained/jepa`), `batch_size` (128) and `log_every` (50) are the keys behind
 `--out`, `--batch-size` and `--log-every`, beside `encoder_type`, `steps`, `lr`, `seed` and the
 rollout settings.
@@ -176,7 +175,7 @@ pretraining is worth it at scale.
 ## 17. Distribution shift
 
 A book made by uniformly-random agents does not look like one made by a trained league: different
-spreads, different depth, different arrival intensity. Pretraining only on `--episodes` rollouts (default `cda_pretrain.num_episodes`, 6)
+spreads, different depth, different arrival intensity. Pretraining only on `--episodes` rollouts (default `num_episodes` in `PRETRAIN_DEFAULTS`, 6)
 fits a market the agent will never trade in.
 
 Once a run exists, prefer `--parquet` over its episode record (`episode_sample_every` already bounds

@@ -1,9 +1,7 @@
 # JEPA: What It Is and How It Serves gym-CDA
 
-> Moved from gym-CDA's `docs/22_jepa_integration.md` with the encoder, history included.
-> Section numbers and the links into gym-CDA's docs are as they were there; code paths now
-> read `cda_jepa/encoder.py` for `train/model/encoders/jepa.py`, `cda_jepa/learner.py` for
-> `train/model/jepa_learner.py` and `cda_jepa/pretrain/` for `train/pretrain/`.
+> Moved from gym-CDA's `docs/22_jepa_integration.md` with the encoder, history included, and it
+> keeps that document's section numbers. Numbered docs (`[18]`, `[29]` and so on) are gym-CDA's.
 
 A research note, not a change. It asks one question: **does the Joint-Embedding Predictive
 Architecture family have anything to offer a closed, zero-sum, multi-agent limit-order-book
@@ -328,7 +326,7 @@ flowchart TD
 
 | Piece | Where it goes | Precedent |
 |---|---|---|
-| `JEPA_DEFAULTS` + `@register("jepa", …)` | `encoders/jepa.py` | `moe_transformer.py` |
+| `JEPA_DEFAULTS` + `@register("jepa", …)` | `cda_jepa/encoder.py` | `moe_transformer.py` |
 | Config block | `encoder_specs.jepa` in `train_config.json` | a block existing is the signal the encoder is implemented |
 | Aux loss out of the encoder | `take_jepa_stats()` → `fwd_out` → Learner | `take_moe_stats`, `moe_learner.py` |
 | Mask-position conditioning | reuse `positional_index()` | `transformer.py` |
@@ -363,7 +361,7 @@ flowchart TD
 **Expected effect:** a better-conditioned trunk and a dense gradient that survives S1-1. Not a fix
 for S1-3.
 
-**As built.** `encoders/jepa.py` plus `train/model/jepa_learner.py`, and nothing else on any other
+**As built.** `cda_jepa/encoder.py` plus `cda_jepa/learner.py`, and nothing else on any other
 encoder's path — verified by `git diff` over the eight shared files, which is a test in
 `TestOtherEncodersAreUnaffectedByJEPA`.
 
@@ -377,7 +375,7 @@ Two things came out differently from this section's plan, both for the better:
   still available later.
 - **The encoder composes rather than subclasses `TorchTransformerEncoder`.** Subclassing would have
   needed an `_encode_tokens()` hook extracted from the parent that `moe_transformer` inherits.
-  Instead `jepa.py` imports `tokenize`, `positional_index`, `TransformerBlock`, `AttentionPool` and
+  Instead `encoder.py` imports `tokenize`, `positional_index`, `TransformerBlock`, `AttentionPool` and
   `PrivateToken` as they stand and duplicates ~15 lines of the forward sequence. That duplication
   is the price of the isolation, paid deliberately.
 
@@ -386,7 +384,7 @@ learner_class_path=…)`. Nothing else declares either, so every previously regi
 resolves to exactly the classes it resolved to before — which is what made this additive.
 
 **With Continual Backprop on.** CBP (now the `cbp` extension in the
-[cda-cbp](https://github.com/ChuaCheowHuan/cda_cbp) package, [25](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/25_continual_backprop.md)) does
+[cda-cbp](https://github.com/ChuaCheowHuan/cda_cbp) package, its [docs/continual_backprop.md](https://github.com/ChuaCheowHuan/cda_cbp/blob/main/docs/continual_backprop.md)) does
 not take the encoder's Learner slot; like any extension it composes over whatever
 `learner_class_for` returned ([30](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/30_extensions.md) §3), so `jepa` plus CBP still takes the
 latent-prediction loss from `CDAJEPALearner`. CBP replaces units only in layers gradient descent
@@ -544,7 +542,7 @@ is the piece worth starting.
 | 2 | Generalise the aux-loss seam: `ENCODER_AUX_LOSS`, encoder-aware `_collect` and `get_non_inference_attributes` | — | S |
 | 3 | ~~**Proposal B** — the `jepa` encoder~~ — **done**, all three mask axes | — | M |
 | 4 | Time-axis masking in Proposal B | 0 (S2-6), 3 | S |
-| 5 | ~~**Proposal D** — offline pretraining, with a fingerprint guard~~ — **done**, see [23](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/23_probe_harness.md) Part 2 | 3 | M |
+| 5 | ~~**Proposal D** — offline pretraining, with a fingerprint guard~~ — **done**, see [pretraining.md](pretraining.md) | 3 | M |
 | 6 | ~~**Proposal C** — action-conditioned world model~~ — **done**, `world_model: true` | 0, 3 | M–L |
 | 7 | Intrinsic reward from predictor error | 0, 6 | M, and only once S1-3's fix is shown to hold in training |
 

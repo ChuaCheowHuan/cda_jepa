@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Docs brought up to date.** `docs/jepa.md` and `docs/pretraining.md` name this package's files
+  and `PRETRAIN_DEFAULTS` instead of gym-CDA's old paths and `cli_defaults.cda_pretrain`, and link
+  cda-cbp's note rather than gym-CDA's pointer page. `docs/development.md` says the equivalence
+  test runs only against gym-CDA 2.2 and lists the CI workflow. The README draws how the forks,
+  this package and gym-CDA fit.
+
 ## 0.1.0
 
 - **JEPA moves here from gym-CDA.** The encoder (`cda_jepa/encoder.py`), its module and Learner
