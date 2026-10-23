@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=77.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cda-jepa"
+version = "0.1.0"
+description = "JEPA for gym-continuousDoubleAuction, as an installable training extension."
+readme = "README.md"
+requires-python = ">=3.12"
+license-files = ["NOTICE", "third_party/ijepa/LICENSE", "third_party/lejepa/LICENSE"]
+# gym-CDA is not on PyPI: install it first (see README). 2.2 is the first with the
+# `gym_cda.encoders` entry point. ijepa and lejepa are git submodules shipped
+# unchanged (see [tool.setuptools]), so the dependencies their shipped modules
+# import are listed here: torch and numpy, and scipy, which lejepa imports
+# (univariate/moments.py) without declaring it.
+dependencies = ["gym_continuousDoubleAuction>=2.2,<3", "torch", "numpy", "scipy"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.entry-points."gym_cda.extensions"]
+jepa = "cda_jepa:EXTENSION"
+
+[project.entry-points."gym_cda.encoders"]
+jepa = "cda_jepa.encoder"
+
+# `src` is I-JEPA's code and `lejepa` LeJEPA's: the ChuaCheowHuan forks, pinned as
+# git submodules and shipped unchanged as top-level packages. I-JEPA has no packaging
+# and imports itself as `src.*`, which is why it keeps that name. Its `datasets`
+# subpackage is left out; its top-level scripts (train.py, transforms.py) ship
+# unchanged but are never imported, since they need torchvision and yaml.
+[tool.setuptools]
+packages = [
+    "cda_jepa",
+    "cda_jepa.pretrain",
+    "src",
+    "src.masks",
+    "src.models",
+    "src.utils",
+    "lejepa",
+    "lejepa.univariate",
+    "lejepa.multivariate",
+]
+
+[tool.setuptools.package-dir]
+src = "third_party/ijepa/src"
+lejepa = "third_party/lejepa/lejepa"
+
+[tool.setuptools.exclude-package-data]
+"*" = ["__pycache__/*", "*.pyc"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+# The authors' code, shipped unchanged (tests/test_packaging.py); never reformat it.
+extend-exclude = ["third_party"]
+
+[tool.ruff.format]
+quote-style = "preserve"

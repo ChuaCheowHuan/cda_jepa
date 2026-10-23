@@ -53,13 +53,24 @@ This module imports the shared primitives and subclasses none of them.
 `lstm` or `moe_transformer` produces exactly what it produced before this file
 existed. The ~15 lines of "project, norm, add positions, attend, pool" that this
 duplicates from `transformer` are the deliberate price of that.
+
+What comes from I-JEPA's own code
+---------------------------------
+The authors' code ships unchanged in this package as the top-level `src`
+(the `ijepa` submodule), and what of it fits is imported rather than rewritten:
+`apply_masks`, which gathers the context and target tokens. Its predictor does
+not fit: it places tokens with fixed 2-D sin-cos positions on a square grid,
+and the book grid (snapshots x levels) is not square, while this predictor's
+learned time and level embeddings are what every checkpoint holds. The EMA
+step, the layer-normed target and the smooth-L1 loss are written inline in its
+`train.py` rather than as functions, so they are written here too.
+docs/provenance.md lists each piece.
 """
 
 from __future__ import annotations
 
 import copy
 import itertools
-import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -74,6 +85,7 @@ from ray.rllib.core.models.torch.base import TorchModel
 from ray.rllib.utils.annotations import override
 
 from gym_continuousDoubleAuction.train.model.encoders import (
+    ENCODER_REGISTRY,
     encoder_settings,
     register,
 )
@@ -94,6 +106,17 @@ from gym_continuousDoubleAuction.train.model.encoders.tokenize import (
 from gym_continuousDoubleAuction.train.model.encoders.transformer import (
     positional_index,
 )
+from src.masks.utils import apply_masks
+
+
+def _gather(x: torch.Tensor, index: torch.Tensor) -> torch.Tensor:
+    """`x[:, index]` for one index list shared by the batch, through I-JEPA's `apply_masks`.
+
+    `apply_masks` takes one `(B, K)` index tensor per mask; this encoder draws one mask per
+    forward, shared by the whole batch, so it is that one row repeated.
+    """
+    return apply_masks(x, [index.unsqueeze(0).expand(x.shape[0], -1)])
+
 
 #: Defaults for the `jepa` block of `encoder_specs`. The transformer keys mean
 #: exactly what they do there; the rest configure the objective.
@@ -443,7 +466,7 @@ class JEPAEncoderConfig(ModelConfig):
     #: hyperparameter and must stay out of the encoder fingerprint.
     action_space: Any = None
 
-    #: A `train.pretrain` checkpoint to initialise from, or None. Set by
+    #: A `cda_jepa.pretrain` checkpoint to initialise from, or None. Set by
     #: `build_encoder_config`, never by the spec block - it is not a
     #: hyperparameter and must stay out of `encoder_spec`, which is what the
     #: encoder fingerprint hashes.
@@ -590,16 +613,9 @@ class TorchJEPAEncoder(TorchModel, Encoder):
         # construction means there is no window in which some worker holds a
         # differently-initialised trunk.
         if config.pretrained_path:
-            from gym_continuousDoubleAuction.train.pretrain import (
-                WEIGHTS_FILE,
-            )
+            from gym_continuousDoubleAuction.train.model.encoders.pretrained import load_state
 
-            state = torch.load(
-                os.path.join(config.pretrained_path, WEIGHTS_FILE),
-                map_location="cpu",
-                weights_only=True,
-            )
-            self.load_state_dict(state)
+            self.load_state_dict(load_state(config.pretrained_path))
 
     # --- The auxiliary objective -----------------------------------------
 
@@ -665,14 +681,14 @@ class TorchJEPAEncoder(TorchModel, Encoder):
         # positions. Re-indexing them 0..C would tell the encoder the masked
         # levels never existed, instead of that they are hidden.
         context = self.trunk(
-            tokens[:, context_idx],
+            _gather(tokens, context_idx),
             self.time_idx[context_idx],
             self.level_idx[context_idx],
         )
 
         with torch.no_grad():
             target = self.target_trunk(tokens, self.time_idx, self.level_idx)
-            target = target[:, masked]
+            target = _gather(target, masked)
             # Normalised per token, as I-JEPA does: without it the trunk can
             # drive the loss down by shrinking the target's scale, which is
             # collapse by a slower route.
@@ -824,22 +840,41 @@ class TorchJEPAEncoder(TorchModel, Encoder):
         return {"world_loss": F.smooth_l1_loss(predicted, target)}
 
 
-@register(
-    "jepa",
-    defaults=JEPA_DEFAULTS,
-    module_class_path=(
-        "gym_continuousDoubleAuction.train.model.jepa_learner",
-        "JEPARLModule",
-    ),
-    learner_class_path=(
-        "gym_continuousDoubleAuction.train.model.jepa_learner",
-        "CDAJEPALearner",
-    ),
-)
-def build_jepa_config(
-    layout: ObsLayout,
-    spec: Dict[str, Any],
-    input_dims: List[int],
-) -> JEPAEncoderConfig:
-    settings = encoder_settings("jepa", spec)
-    return JEPAEncoderConfig(input_dims=input_dims, layout=layout, **settings)
+#: The `encoder_type` this package provides, and the extension a run enables for it.
+ENCODER_TYPE = "jepa"
+EXTENSION_NAME = "jepa"
+
+#: Where `JEPARLModule` and `CDAJEPALearner` live, for `@register`'s class paths.
+_LEARNER_MODULE = "cda_jepa.learner"
+
+
+def register_encoder(name: str, extension: Optional[str] = EXTENSION_NAME) -> None:
+    """Register this encoder with gym-CDA under `name`.
+
+    A function rather than a decorator at import, because gym-CDA before 2.3 still
+    registers its own `jepa`: there the package registers nothing under that name
+    (see the bottom of this module), and its tests register it under a fixture
+    name, which `register` accepts beside the built-in one, to compare the two.
+    """
+
+    def build(layout: ObsLayout, spec: Dict[str, Any], input_dims: List[int]):
+        settings = encoder_settings(name, spec)
+        return JEPAEncoderConfig(input_dims=input_dims, layout=layout, **settings)
+
+    register(
+        name,
+        defaults=JEPA_DEFAULTS,
+        module_class_path=(_LEARNER_MODULE, "JEPARLModule"),
+        learner_class_path=(_LEARNER_MODULE, "CDAJEPALearner"),
+        extension=extension,
+        # The world model predicts the next observation, which PPO's train batch
+        # does not carry; gym-CDA attaches the connector that adds it.
+        needs_next_obs=lambda settings: bool(settings["world_model"]),
+    )(build)
+
+
+# gym-CDA imports this module the first time a run looks up `jepa` (the
+# `gym_cda.encoders` entry point). A gym-CDA that still ships its own `jepa`
+# has registered it already, and never imports this module for that name.
+if ENCODER_TYPE not in ENCODER_REGISTRY:
+    register_encoder(ENCODER_TYPE)

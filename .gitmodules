@@ -1,0 +1,6 @@
+[submodule "third_party/ijepa"]
+	path = third_party/ijepa
+	url = https://github.com/ChuaCheowHuan/ijepa
+[submodule "third_party/lejepa"]
+	path = third_party/lejepa
+	url = https://github.com/ChuaCheowHuan/lejepa

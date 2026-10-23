@@ -1,6 +1,6 @@
-"""CLI: `python -m gym_continuousDoubleAuction.train.pretrain`.
+"""CLI: `python -m cda_jepa.pretrain`.
 
-Defaults come from `config/cli_defaults.json` -> `cda_pretrain`; this module
+Defaults come from `cda_jepa.config.PRETRAIN_DEFAULTS`; this module
 holds no literal default, on the same rule as `CDA_rand` and the probe.
 """
 
@@ -9,29 +9,30 @@ from __future__ import annotations
 import argparse
 import sys
 
-from gym_continuousDoubleAuction.config_loader import cli_default, group
+from gym_continuousDoubleAuction.config_loader import group
 from gym_continuousDoubleAuction.logging_setup import configure as configure_logging
 from gym_continuousDoubleAuction.logging_setup import get_logger
 
 # Named imports, not `import pretrain as pretrain_module`: the package
 # re-exports a *function* called `pretrain`, so that spelling binds the
 # function and every attribute lookup on it fails.
-from gym_continuousDoubleAuction.train.pretrain import (
+from cda_jepa.config import PRETRAIN_DEFAULTS
+from cda_jepa.pretrain import (
     PRETRAINABLE,
     pretrain,
     save,
 )
 
-logger = get_logger("gym_continuousDoubleAuction.train.pretrain")
+logger = get_logger("cda_jepa.pretrain")
 
 
 def _cli(key):
-    return cli_default("cda_pretrain", key)
+    return PRETRAIN_DEFAULTS[key]
 
 
 def main(argv=None):
     p = argparse.ArgumentParser(
-        description="Pretrain a JEPA encoder on observations alone. See docs/23_probe_harness.md, Part 2.",
+        description="Pretrain a JEPA encoder on observations alone. See docs/pretraining.md.",
     )
     p.add_argument(
         "--out",

@@ -34,8 +34,8 @@ is a failure mode the repository has already been bitten by once.
 
 Run it
 ------
-    python -m gym_continuousDoubleAuction.train.pretrain --steps 300
-    python -m gym_continuousDoubleAuction.train.pretrain --parquet <log_dir>/episodes
+    python -m cda_jepa.pretrain --steps 300
+    python -m cda_jepa.pretrain --parquet <log_dir>/episodes
 
 Then score what it learned, reward-free, against the same architecture
 untrained - which is exactly the comparison the probe harness already renders
@@ -71,7 +71,7 @@ trade in. Once a run exists, prefer `--parquet` over its episode record, or
 treat random-agent data as a warm start only.
 """
 
-from gym_continuousDoubleAuction.train.pretrain.pretrain import (
+from cda_jepa.pretrain.pretrain import (
     FINGERPRINT_FILE,
     MODULE_SUBDIR,
     PRETRAINABLE,
