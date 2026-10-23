@@ -11,6 +11,7 @@ cda_jepa/config.py           the pretrainer's CLI defaults
 tests/                       pytest; `python -m pytest -q`
 third_party/ijepa            I-JEPA, a git submodule, installed unchanged as `src`
 third_party/lejepa           LeJEPA, a git submodule, installed unchanged as `lejepa`
+.github/workflows/cda_jepa.yml  CI
 ```
 
 ## Install for development
@@ -32,12 +33,12 @@ build stops at the missing `third_party/*` directories.
 To move a fork to a newer commit: `git -C third_party/ijepa fetch && git -C third_party/ijepa
 checkout <sha>`, commit the submodule, and let CI run.
 
-## Beside a gym-CDA that still ships `jepa`
+## Against gym-CDA 2.2
 
-gym-CDA 2.2 has the entry-point discovery and still ships its own `jepa`. This package then does
-not register `jepa` (gym-CDA's wins), and `tests/conftest.py` registers this package's encoder as
-the fixture `_jepa_ext`, so the tests exercise this package's code either way. `JEPA` in conftest
-is the name to build.
+gym-CDA 2.3 and later ship no `jepa`, and this package registers it. gym-CDA 2.2, the oldest this
+package supports, still ships its own, which wins; `tests/conftest.py` then registers this
+package's encoder as the fixture `_jepa_ext`, so the tests exercise this package's code either
+way. `JEPA` in conftest is the name to build.
 
 ## What this package uses from gym-CDA
 
@@ -59,7 +60,7 @@ is the name to build.
 | `test_world_model_actions.py` | The world model embeds every action head |
 | `test_pretrain.py` | The pretrainer: the loop, collapse, the checkpoint, its guard, the CLI |
 | `test_wiring.py` | A real gym-CDA `Algorithm`: the loss terms reach the optimiser, the NEXT_OBS connector is conditional, other encoders are unaffected |
-| `test_equivalence.py` | The gate for removing gym-CDA's `jepa`: from the same state on the same episodes, this package and gym-CDA's encoder give identical weights, EMA target, optimiser state and `jepa_*` metrics, with the world model off and on and the trunk shared or not; a control shows it can fail. Skipped once gym-CDA no longer ships `jepa` |
+| `test_equivalence.py` | The gate for removing gym-CDA's `jepa`: from the same state on the same episodes, this package and gym-CDA's encoder give identical weights, EMA target, optimiser state and `jepa_*` metrics, with the world model off and on and the trunk shared or not; a control shows it can fail. Runs only against gym-CDA 2.2, which still ships `jepa`; skipped against 2.3 and later |
 | `test_moved_checks.py` | Checks from other gym-CDA test files: one-row batches give finite losses (#242), the pooling tuple is gym-CDA's, pretraining builds in the corpus's book mode (#187) |
 | `test_packaging.py` | The installed forks equal the submodules; the entry points |
 | `test_docs.py` | The settings table matches `JEPA_DEFAULTS`, and every relative link resolves |

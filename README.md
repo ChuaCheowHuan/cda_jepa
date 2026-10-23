@@ -14,6 +14,20 @@ it moved here; [docs/migration.md](docs/migration.md) covers what changed.
 - Balestriero & LeCun, *LeJEPA: Provable and Scalable Self-Supervised Learning Without the
   Heuristics*, 2025. Code: [ChuaCheowHuan/lejepa](https://github.com/ChuaCheowHuan/lejepa).
 
+## How it fits
+
+```mermaid
+flowchart LR
+    IJ["ijepa fork<br/>git submodule, installed unchanged as src"] -->|"apply_masks"| CJ["cda_jepa<br/>encoder, module, Learner, pretrainer"]
+    LJ["lejepa fork<br/>git submodule, installed unchanged"] -.->|"installed; SIGReg planned opt-in"| CJ
+    CJ -->|"entry points gym_cda.encoders<br/>and gym_cda.extensions"| GYM["gym-CDA<br/>builds jepa when a run selects it"]
+    GYM -->|"encoder registry, tokenizer, transformer blocks,<br/>PPO Learner, pretrained-weights format, probe corpus"| CJ
+```
+
+gym-CDA's
+[docs/30_extensions.md](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/30_extensions.md)
+draws all three extension packages and their forks.
+
 ## Install
 
 gym-CDA is not on PyPI. Install it first, then this package:
