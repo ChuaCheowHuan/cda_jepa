@@ -110,3 +110,28 @@ def test_pretraining_builds_the_encoder_in_the_corpus_mode():
     )
 
     assert module is not None
+
+
+class TestTheLearnerReachesGymCdasLossSeam:
+    """From gym-CDA's `test_loss_seam.py`: `CDAJEPALearner` overrides the outer loss method and
+    calls `super()`, so an extension that replaces PPO's loss beneath it is still used."""
+
+    def test_a_replacement_composed_beneath_it_is_used(self, monkeypatch):
+        from ray.rllib.algorithms.ppo.torch.ppo_torch_learner import PPOTorchLearner
+
+        from cda_jepa.learner import CDAJEPALearner
+
+        monkeypatch.setattr(
+            PPOTorchLearner,
+            "compute_loss_for_module",
+            lambda self, *, module_id, config, batch, fwd_out: torch.tensor(1.5),
+        )
+        replaced = type(
+            "ReplacedJEPA",
+            (CDAJEPALearner,),
+            {"_policy_value_loss": lambda self, **kwargs: torch.tensor(10.0)},
+        )
+        learner = replaced.__new__(replaced)
+        learner.metrics = type("Metrics", (), {"log_dict": lambda *a, **k: None})()
+        out = learner.compute_loss_for_module(module_id="p", config=None, batch={}, fwd_out={})
+        assert torch.equal(out, torch.tensor(10.0))
