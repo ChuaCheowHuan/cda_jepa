@@ -56,7 +56,7 @@ Selecting `jepa` without `"jepa"` in `extensions_enabled` is refused.
 | | |
 |---|---|
 | Tokenisation | either gym-CDA book mode (`grid`, `levels`); `tokenization` `both`, `time` or `level` |
-| Learners | any number; the loss is computed on the actor's encoder only |
+| Learners | one (`num_learners` 0 or 1). With more, the Learner reads `.encoder` off RLlib's DDP wrapper and raises ([#6](https://github.com/ChuaCheowHuan/cda_jepa/issues/6)). The loss is computed on the actor's encoder only |
 | Composition | `CDAJEPALearner` subclasses gym-CDA's PPO Learner and keeps the MoE term; other extensions' mixins (CBP) wrap it |
 | World model | `"world_model": true` adds `Columns.NEXT_OBS` to the train batch; nothing else does |
 | Pretraining | `python -m cda_jepa.pretrain`, then `pretrained_encoder_path` ([docs/pretraining.md](docs/pretraining.md)) |
@@ -65,8 +65,11 @@ Selecting `jepa` without `"jepa"` in `extensions_enabled` is refused.
 ## Read the collapse metric before believing it works
 
 A collapsed JEPA maps every observation to one latent, which makes its prediction loss zero and
-reads as success. Watch `jepa_latent_std` (near 1, never near 0) and `jepa_offdiag_cov`
-([docs/metrics.md](docs/metrics.md)).
+reads as success. `jepa_latent_std` and `jepa_offdiag_cov` are the metrics meant to show it
+([docs/metrics.md](docs/metrics.md)), but today `jepa_latent_std` cannot: it measures spread across
+masked positions, so it reads about 0.87 for a dead encoder as well as a healthy one
+([#4](https://github.com/ChuaCheowHuan/cda_jepa/issues/4)). Until that is fixed, treat a healthy
+reading as no evidence either way.
 
 ## What comes from the forks
 
@@ -89,4 +92,6 @@ package uses from gym-CDA.
 ## License
 
 This package's own code is MIT, the same as gym-CDA, from which it came. The I-JEPA and LeJEPA
-code it installs is CC BY-NC 4.0 (non-commercial); see [NOTICE](NOTICE).
+code it installs is CC BY-NC 4.0 (non-commercial); see [NOTICE](NOTICE). The encoder imports
+I-JEPA's `apply_masks` at import time, so using the package as it stands needs that code too
+([#24](https://github.com/ChuaCheowHuan/cda_jepa/issues/24)).

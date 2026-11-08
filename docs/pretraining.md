@@ -2,14 +2,14 @@
 
 `cda_jepa/pretrain/` trains the JEPA encoder's self-supervised objective on observations alone (no
 reward, no policy, no opponents) and writes weights a training run can start from. It is Proposal
-D of [jepa.md](jepa.md) §4.4. It was Part 2 of gym-CDA's docs/23 and keeps those section numbers
-(§11 to §18); the probe harness, its corpus reader and how to measure what pretraining did are
-gym-CDA's [docs/23](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/23_probe_harness.md).
+D of [jepa.md](jepa.md) §4.4. It was Part 2 of gym-CDA's docs/23; the probe harness, its corpus
+reader and how to measure what pretraining did are gym-CDA's
+[docs/23](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/23_probe_harness.md).
 
 The checkpoint format is gym-CDA's (`train/model/encoders/pretrained.py`), so gym-CDA verifies and
 loads the weights without importing this package's trainer.
 
-## 11. Why
+## 1. Why
 
 [gym-CDA docs/12](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/12_perspective_rl_researcher.md) §7 puts the shipped budget at ~262k env steps against a
 realistic 10⁷–10⁸. Reward-driven learning is the expensive way to teach an encoder what an order
@@ -22,7 +22,7 @@ single PPO iteration.
 
 ---
 
-## 12. Running it
+## 2. Running it
 
 ```bash
 python -m cda_jepa.pretrain --steps 300
@@ -37,7 +37,8 @@ The encoder's *hyperparameters* are deliberately **not** duplicated there — th
 `encoder_specs.jepa` in gym-CDA's `train_config.json` (the defaults in [settings.md](settings.md)
 when the block is absent), so a pretrained encoder is built from the same numbers
 the training run will build it from, and the fingerprint written beside the weights is comparable
-with the one `train.py` computes.
+with the one `train.py` computes. That file is found through gym-CDA's `config_loader`, so a run
+with its own config directory pretrains from it by setting `CDA_CONFIG_DIR` to that directory.
 
 Then use it:
 
@@ -51,7 +52,7 @@ Then use it:
 
 ---
 
-## 13. What it reuses
+## 3. What it reuses
 
 Nothing here reads a Parquet file or steps an env:
 
@@ -59,8 +60,8 @@ Nothing here reads a Parquet file or steps an env:
 |---|---|---|
 | `from_rollouts`, `from_parquet` | gym-CDA `train/probe/corpus.py` | Both sources, the per-agent deduplication (an 8-agent record holds eight rows per step that share the book), episode marking, width validation |
 | `split_masks` | gym-CDA `train/probe/probe.py` | The train/validation split, by episode |
-| `build_module` | gym-CDA `train/probe/features.py` |
-| `save`, `verify_fingerprint`, `load_into` | gym-CDA `train/model/encoders/pretrained.py` | The checkpoint format and its guard, shared with the probe and `model_handler` | Building the module *training* would build — same catalog, same `vf_share_layers`, same wrapper |
+| `build_module` | gym-CDA `train/probe/features.py` | Building the module *training* would build — same catalog, same `vf_share_layers`, same wrapper |
+| `save`, `verify_fingerprint`, `load_into` | gym-CDA `train/model/encoders/pretrained.py` | The checkpoint format and its guard, shared with the probe and `model_handler` |
 
 That last one matters more than it looks. Pretraining builds the whole `RLModuleSpec` and trains
 the encoder inside it, rather than instantiating a `TorchJEPAEncoder` directly, so the pretrained
@@ -70,7 +71,7 @@ the trained thing" bug.
 
 ---
 
-## 14. The checkpoint, and the guard on it
+## 4. The checkpoint, and the guard on it
 
 A checkpoint directory holds three things:
 
@@ -92,7 +93,7 @@ the repository has already been bitten by.
 The check runs at **spec-build time**, before the path reaches any encoder, so a mismatch names the
 architectures instead of surfacing as a shape error on some env runner.
 
-### 14.1 Why the path is not `RLModuleSpec.load_state_path`
+### 4.1 Why the path is not `RLModuleSpec.load_state_path`
 
 There is a field on `RLModuleSpec` that looks made for this. It is not: in RLlib 2.56 it is stored,
 merged and copied, and **never read back**. Setting it would have silently done nothing — the same
@@ -110,9 +111,15 @@ its checkpoint. Neither ends up running pretrained weights it did not ask for.
 `mlp` cannot use a pretrained encoder and says so: it has no self-supervised objective, so nothing
 could have produced those weights.
 
+**Only load checkpoints you trust.** A training run reads `encoder.pt` with
+`torch.load(..., weights_only=True)`, which refuses arbitrary objects. `rl_module/` is a full RLlib
+checkpoint, and the tools that restore a module from it (the probe's and export's
+`--checkpoint`) unpickle it, which can run code. Point `pretrained_encoder_path` and those tools only
+at directories you made or trust.
+
 ---
 
-## 15. What to watch — and it is not the loss
+## 5. What to watch — and it is not the loss
 
 ```
 steps            : 150
@@ -123,8 +130,10 @@ latent std       : 0.71992 -> 0.66829
 
 **`latent_std`, not the loss.** A collapsed JEPA maps every observation to the same vector, which
 makes its prediction *perfect* — the loss goes to zero and reads as a spectacular success, with
-throughput unchanged. `latent_std` goes to zero at the same moment and is the only signal that
-separates the two. `PretrainReport.collapsed` checks for it and the CLI **exits non-zero**, rather
+throughput unchanged. `latent_std` is meant to go to zero at the same moment and to separate the
+two, but today it does not: taken over batch x masked positions, it stays near 0.87 for a dead
+encoder too ([#4](https://github.com/ChuaCheowHuan/cda_jepa/issues/4)), so the gate below catches
+divergence reliably and collapse only once #4 is fixed. `PretrainReport.collapsed` checks for it and the CLI **exits non-zero**, rather
 than leaving a good-looking number in the log beside weights nobody should load. It is also true
 when the run diverged: a NaN or infinite loss or `latent_std`, or no reading at all (`diverged`).
 The CLI checks before it saves, so a collapsed or diverged run writes **nothing**, and a
@@ -137,7 +146,7 @@ training curve, so the objective is generalising to unseen episodes rather than 
 
 ---
 
-## 16. Measuring what pretraining did
+## 6. Measuring what pretraining did
 
 The probe scores the same architecture twice, on identical rows with an identical split:
 
@@ -172,7 +181,7 @@ pretraining is worth it at scale.
 
 ---
 
-## 17. Distribution shift
+## 7. Distribution shift
 
 A book made by uniformly-random agents does not look like one made by a trained league: different
 spreads, different depth, different arrival intensity. Pretraining only on `--episodes` rollouts (default `num_episodes` in `PRETRAIN_DEFAULTS`, 6)
@@ -183,7 +192,7 @@ what that costs), or treat random-agent data as a warm start only.
 
 ---
 
-## 18. Layout
+## 8. Layout
 
 | Module | Owns |
 |---|---|

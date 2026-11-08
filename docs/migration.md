@@ -37,6 +37,12 @@ stayed in gym-CDA (`train/model/encoders/pretrained.py`). Weights pretrained bef
 The probe stays in gym-CDA: `python -m gym_continuousDoubleAuction.train.probe --encoders jepa
 --pretrained <dir>` works with this package installed.
 
+## World-model weights from before `order_slot`
+
+gym-CDA's R-16 (#186) added `order_slot` to the world model's action embedding, so world-model
+weights saved before that change have no `order_slot` table and do not load into a model built
+after it. Weights without the world model are unaffected.
+
 ## Metrics
 
 The `jepa_*` names are unchanged ([metrics.md](metrics.md)).

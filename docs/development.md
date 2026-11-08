@@ -9,6 +9,7 @@ cda_jepa/learner.py          JEPARLModule and CDAJEPALearner: the loss terms and
 cda_jepa/pretrain/           offline pretraining (python -m cda_jepa.pretrain)
 cda_jepa/config.py           the pretrainer's CLI defaults
 tests/                       pytest; `python -m pytest -q`
+CLAUDE.md, .claude/skills/   rules and skills for coding agents working here
 third_party/ijepa            I-JEPA, a git submodule, installed unchanged as `src`
 third_party/lejepa           LeJEPA, a git submodule, installed unchanged as `lejepa`
 .github/workflows/cda_jepa.yml  CI
@@ -25,7 +26,11 @@ git clone --recurse-submodules https://github.com/ChuaCheowHuan/cda_jepa
 cd cda_jepa
 pip install -e ".[test]"
 python -m pytest -q
+ruff check . && ruff format --check .
 ```
+
+If `download.pytorch.org` is unreachable, `pip install torch` from PyPI also works; it pulls in the
+CUDA libraries and is several GB. The `jepa-dev-setup` skill (`.claude/skills/`) has the details.
 
 A clone made without `--recurse-submodules` needs `git submodule update --init` first, or the
 build stops at the missing `third_party/*` directories.
@@ -53,18 +58,23 @@ way. `JEPA` in conftest is the name to build.
 
 ## Tests
 
+A test belongs here when it fails if this package's code is wrong. Behaviour that is gym-CDA's own
+(its registry, catalog, probe split, checkpoint format) is tested in gym-CDA.
+
 | File | Covers |
 |---|---|
-| `test_encoder.py` | The encoder contract every gym-CDA encoder meets, masks, EMA, collapse metrics, the world model, review regressions |
-| `test_jepa_value_pass.py` | The value pass does not add a second JEPA term |
+| `test_encoder.py` | The encoder contract every gym-CDA encoder meets; masks, EMA, the collapse metrics and the variance hinge; the world model; inference-only modules |
+| `test_jepa_value_pass.py` | The value pass runs no objective and takes no EMA step; masks have their own generator |
 | `test_world_model_actions.py` | The world model embeds every action head |
 | `test_pretrain.py` | The pretrainer: the loop, collapse, the checkpoint, its guard, the CLI |
 | `test_wiring.py` | A real gym-CDA `Algorithm`: the loss terms reach the optimiser, the NEXT_OBS connector is conditional, other encoders are unaffected |
-| `test_moved_checks.py` | Checks from other gym-CDA test files: one-row batches give finite losses (#242), the pooling tuple is gym-CDA's, pretraining builds in the corpus's book mode (#187) |
+| `test_moved_checks.py` | Checks from other gym-CDA test files: one-row batches give finite losses (gym-CDA #242), pretraining builds in the corpus's book mode (#187), the Learner calls gym-CDA's loss seam |
 | `test_packaging.py` | The installed forks equal the submodules; the entry points |
-| `test_docs.py` | The settings table matches `JEPA_DEFAULTS`, and every relative link resolves |
+| `test_docs.py` | The settings table matches `JEPA_DEFAULTS`, and every relative link resolves (docs, `CLAUDE.md`, skills) |
 
 ## CI
 
-`.github/workflows/cda_jepa.yml` checks out the submodules, installs gym-CDA at `GYM_CDA_REF` and
-runs the tests.
+`.github/workflows/cda_jepa.yml` checks out the submodules, installs gym-CDA at `GYM_CDA_REF`
+(default `master`) and runs the tests. It does not yet run ruff
+([#18](https://github.com/ChuaCheowHuan/cda_jepa/issues/18)) or test the gym-CDA 2.2 floor
+([#23](https://github.com/ChuaCheowHuan/cda_jepa/issues/23)).
