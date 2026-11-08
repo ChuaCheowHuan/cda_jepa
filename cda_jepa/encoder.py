@@ -19,7 +19,7 @@ economically meaningful quantity in the observation.
 Predicting in *representation* space removes that by construction. The target is
 produced by an encoder that is itself being trained, so anything genuinely
 unpredictable is free to be dropped from the representation and the loss stops
-paying attention to it. See docs/22 2.2.
+paying attention to it. See docs/jepa.md section 2.2.
 
 What is masked
 --------------
@@ -63,7 +63,8 @@ not fit: it places tokens with fixed 2-D sin-cos positions on a square grid,
 and the book grid (snapshots x levels) is not square, while this predictor's
 learned time and level embeddings are what every checkpoint holds. The EMA
 step, the layer-normed target and the smooth-L1 loss are written inline in its
-`train.py` rather than as functions, so they are written here too.
+`train.py` (the authors' I-JEPA script) rather than as functions, so they are written
+here too.
 docs/provenance.md lists each piece.
 """
 
@@ -152,14 +153,16 @@ MASK_AXES = ("level", "time", "random")
 #: (`tunable_constants.json` -> action_space) and could change under it.
 #: `order_slot` is here because it decides which of the agent's own orders a modify or cancel
 #: touches; leaving it out made "cancel my first order" and "cancel my third" embed alike
-#: (#186). `test_world_model_actions` holds this list equal to the env's `ACTION_KEYS`.
+#: (gym-CDA #186). `test_world_model_actions` holds this list equal to the env's `ACTION_KEYS`.
 DISCRETE_ACTIONS = ("category", "order_slot", "price", "price_offset")
 BOX_ACTIONS = ("size",)
 
-#: Floor the variance hinge pushes each latent dimension's standard deviation
-#: above. Not a knob: it is the unit scale that LayerNormed targets already sit
-#: near, so the hinge is inactive on a healthy encoder and only bites during a
-#: collapse.
+#: Floor the variance hinge pushes the mean per-dimension standard deviation
+#: above. Not a knob. For layer-normed rows that mean is at most about 1 and reaches
+#: 1 only when the batch mean is zero in every dimension, so the hinge stays slightly
+#: active on a healthy encoder (about a fifth of `aux_loss` at initialisation) and
+#: pushes the batch mean of the predictions toward zero. Whether to keep it so is
+#: cda_jepa #22.
 VARIANCE_TARGET = 1.0
 
 
@@ -363,8 +366,8 @@ class _Predictor(nn.Module):
 class _ActionEmbed(nn.Module):
     """Embed one `Dict` action into `d_model`.
 
-    The three discrete components get embedding tables and the two `Box` ones a
-    linear layer; the results are summed, so the module is indifferent to the
+    The discrete components (`DISCRETE_ACTIONS`) get embedding tables and the `Box`
+    ones (`BOX_ACTIONS`) a linear layer; the results are summed, so the module is indifferent to the
     order the space happens to enumerate them in.
     """
 
@@ -560,7 +563,7 @@ class TorchJEPAEncoder(TorchModel, Encoder):
 
         # The action-conditioned world model, when asked for. Off by default:
         # it needs Columns.NEXT_OBS in the train batch, which PPO does not add,
-        # so `train.py` attaches the learner connector that supplies it only
+        # so gym-CDA attaches the learner connector that supplies it only
         # when this is on.
         self.world_model = None
         if config.world_model:
@@ -587,7 +590,7 @@ class TorchJEPAEncoder(TorchModel, Encoder):
         #:
         #: `ActorCriticEncoder` builds two encoders from one config when
         #: `vf_share_layers` is false - the shipped default - and only the
-        #: actor's stats are ever collected (`jepa_learner._jepa_sub_encoder`
+        #: actor's stats are ever collected (`cda_jepa.learner._jepa_sub_encoder`
         #: takes the first, to avoid double-counting the term). The critic's
         #: copy would therefore run a mask pass, a target pass, the predictor
         #: and the world model on every training forward, and have all of it
@@ -634,7 +637,7 @@ class TorchJEPAEncoder(TorchModel, Encoder):
         """This encoder's own generator for mask sampling, made on first use.
 
         Drawing masks from the global torch RNG meant every forward - including passes that
-        train nothing - moved a seeded run's random stream (#185); CBP keeps a generator of
+        train nothing - moved a seeded run's random stream (gym-CDA #185); CBP keeps a generator of
         its own for the same reason. Seeded from the process's initial seed plus a counter, so
         `torch.manual_seed` before building makes the masks reproducible and two encoders in
         one process do not draw identical ones.
@@ -700,26 +703,13 @@ class TorchJEPAEncoder(TorchModel, Encoder):
 
         # Collapse metrics and the hinge, both computed on the ONLINE side.
         #
-        # This is the whole of docs/29 S2-9. They used to be derived from
-        # `target`, which is produced inside `torch.no_grad()` by a trunk whose
-        # parameters are additionally `requires_grad_(False)`. So `std` had
-        # `grad_fn is None`, `variance_penalty` had `requires_grad False`, and
-        # `loss + coeff * penalty` was `loss` plus a *constant*. Nothing raised,
-        # because adding a constant to a tensor that does carry a grad_fn is
-        # perfectly legal - the sum still backpropagates, just not through the
-        # term that was supposed to do the work. The mechanism this module,
-        # `train_config.json`'s `_note_collapse` and `pretrain/__init__` all
-        # describe as "the only thing actively pushing back once a collapse
-        # starts" contributed exactly zero gradient, and `variance_coeff` was a
-        # dead knob that nonetheless entered `encoder_fingerprint` - so changing
-        # it invalidated checkpoints while changing nothing at all.
-        #
-        # `predicted` is the online counterpart of `target`: same positions,
-        # same count, and gradients reach both the predictor and, through
-        # `context`, the trunk. VICReg applies its variance and covariance terms
-        # to the embeddings being *trained*; BYOL stops the gradient on the
-        # target branch alone. Reading them off the target was a deviation from
-        # both.
+        # `predicted` is the online counterpart of `target`: same positions, same
+        # count, and gradients reach both the predictor and, through `context`, the
+        # trunk. `target` is built under `no_grad` by a frozen trunk, so statistics
+        # read off it carry no gradient and the hinge would be a constant added to
+        # the loss (gym-CDA's finding S2-9, in its docs/29_fixed_issues.md). VICReg
+        # applies its variance term to the embeddings being trained; BYOL stops the
+        # gradient on the target branch alone.
         #
         # Layer-normed like the target before the statistics are taken, so
         # `VARIANCE_TARGET` of 1.0 means the same thing on both sides. The
@@ -728,15 +718,16 @@ class TorchJEPAEncoder(TorchModel, Encoder):
         online = F.layer_norm(predicted, predicted.shape[-1:])
 
         # A collapsed JEPA drives `loss` to ZERO, which reads as success - so
-        # the loss alone cannot tell a working encoder from a dead one. `std`
-        # can: it is the mean per-dimension standard deviation across the
-        # batch, and it goes to 0 exactly when every observation maps to the
-        # same vector.
+        # the loss alone cannot tell a working encoder from a dead one. `std` is
+        # meant to: the mean per-dimension standard deviation of the rows. It is
+        # taken over batch x masked positions, so the predictor's position
+        # embeddings keep it high even when every observation maps to the same
+        # vector; it does not yet detect a collapse (cda_jepa #4).
         flat = online.reshape(-1, online.shape[-1])
         if flat.shape[0] < 2:
             # The spread of one row is undefined: the unbiased std is NaN, and
             # `relu(1 - nan)` carried it into the aux loss, `total_loss` and every
-            # statistic below (issue #242). Reachable with one observation and
+            # statistic below (gym-CDA #242). Reachable with one observation and
             # one masked token - a final partial pretraining batch. The hinge is
             # skipped, and `latent_std` says "not measured" rather than a 0 that
             # would read as a collapse.
@@ -751,8 +742,8 @@ class TorchJEPAEncoder(TorchModel, Encoder):
         off_diagonal = covariance - torch.diag(torch.diag(covariance))
         offdiag = off_diagonal.abs().mean()
 
-        # VICReg-style hinge: inactive on a healthy encoder, and the only thing
-        # actively pushing back once a collapse starts. It now actually is.
+        # VICReg-style hinge, the only term actively pushing back once a collapse
+        # starts. See `VARIANCE_TARGET` for why it is never fully off.
         variance_penalty = (
             F.relu(VARIANCE_TARGET - std) if flat.shape[0] >= 2 else flat.new_zeros(())
         )
@@ -786,7 +777,7 @@ class TorchJEPAEncoder(TorchModel, Encoder):
         # stochastic, and PPO's ratio compares a log-prob recorded during
         # rollout against one recomputed on the learner. Anything stochastic on
         # the inference path shows up as noise in that ratio rather than as an
-        # error, which is what `test_eval_forward_is_deterministic` exists to
+        # error, which is what `test_the_rollout_forward_is_deterministic` exists to
         # catch. The objective therefore runs in train mode only, and the
         # latent above is not affected by it either way.
         if self.training and self.objective_enabled:

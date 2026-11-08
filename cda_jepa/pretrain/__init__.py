@@ -2,7 +2,7 @@
 
 Why
 ---
-`docs/12` §7 puts the shipped budget at ~262k env steps and a realistic one at
+gym-CDA's `docs/12` §7 puts the shipped budget at ~262k env steps and a realistic one at
 10^7-10^8. Reward-driven learning is the expensive way to teach an encoder what
 an order book looks like, and in this env it is also the *slow* way: the
 gradient reaching the encoder is a high-variance policy gradient over a market
@@ -15,7 +15,7 @@ single PPO iteration.
 
 Reuse rather than rebuild
 -------------------------
-Nothing here reads a Parquet file or steps an env. `train/probe/corpus.py`
+Nothing here reads a Parquet file or steps an env. gym-CDA's `train/probe/corpus.py`
 already does both, already deduplicates the per-agent copies (S1-2 means an
 8-agent record holds eight copies of every observation), already marks episode
 boundaries and already validates widths against the layout. `train/probe/probe.py`
@@ -25,7 +25,7 @@ checkpoint format around them.
 The checkpoint's fingerprint
 ----------------------------
 Weights are saved beside `encoder_fingerprint(encoder_type, encoder_spec)` and a
-mismatch on load is a hard error. That is the same guard `train.py` applies to a
+mismatch on load is a hard error. That is the same guard gym-CDA's `train.py` applies to a
 restore, through the same function, and it exists for the same reason: the
 weights are *that architecture's* weights. `_encoder_fingerprint` was itself
 written after a `getattr`-only read silently reported the `mlp` default from the
@@ -59,7 +59,7 @@ believed.
 Detection is not prevention, and until recently this package had only the first.
 The `variance_coeff` hinge that is supposed to resist a collapse was computed
 from the EMA *target*, built under `torch.no_grad()`, so it contributed exactly
-zero gradient and the encoder had no active defence at all - docs/29 S2-9. It is
+zero gradient and the encoder had no active defence at all - gym-CDA's S2-9. It is
 computed on the online side now, so the knob does what this file says it does.
 
 Distribution shift
