@@ -153,7 +153,7 @@ def _jepa_encoder(module):
 
     The actor's, not both: with `vf_share_layers` false the critic has its own
     instance, and training both would double the objective on the same data -
-    the confound `moe_learner` had to average over blocks to avoid.
+    the confound gym-CDA's `moe_learner` had to average over blocks to avoid.
     """
     encoder = module.encoder
     for name in ("encoder", "actor_encoder"):
@@ -200,7 +200,7 @@ def _evaluate(encoder, module, rows, corpus, batch_size) -> Dict[str, float]:
             continue
         losses.append(float(stats["predict_loss"]))
         # A one-row chunk reports NaN (the spread of one row is undefined); it
-        # is "not measured", not a datapoint to average in (issue #242).
+        # is "not measured", not a datapoint to average in (gym-CDA #242).
         std = float(stats["latent_std"])
         if math.isfinite(std):
             stds.append(std)
@@ -259,7 +259,7 @@ def pretrain(
     # from what the run would be configured with. `save` then wrote
     # `encoder_fingerprint(encoder_type, None)` beside the weights, and a
     # training run built from the config block could not load them. See
-    # docs/29 S3-22.
+    # gym-CDA's S3-22.
     encoder_spec = resolve_spec(encoder_type, encoder_spec)
 
     torch.manual_seed(seed)
@@ -286,7 +286,7 @@ def pretrain(
 
     # The test fifth is held out deliberately, not wasted. The probe scores a
     # pretrained encoder "on identical rows with an identical split"
-    # (docs/23 section 16), so these are exactly the episodes its test score is
+    # (gym-CDA's docs/23 section 16), so these are exactly the episodes its test score is
     # read on; training on them here would leak them into that score.
     train_mask, validation_mask, _test_mask = probe_module.split_masks(
         corpus.episode_index, len(corpus)

@@ -28,7 +28,9 @@ FORKS = {
 
 
 def _installed_files(package):
-    (path,) = importlib.import_module(package).__path__
+    # A namespace package's `__path__` can also hold an editable install's finder hook,
+    # which is not a directory (#8); only real directories hold installed files.
+    (path,) = [p for p in importlib.import_module(package).__path__ if os.path.isdir(p)]
     for dirpath, dirnames, filenames in os.walk(path):
         dirnames[:] = [d for d in dirnames if d != "__pycache__"]
         for name in filenames:

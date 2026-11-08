@@ -8,7 +8,7 @@ encoder instance, and adding its term too would double the loss under that setti
 |---|---|---|
 | `jepa_aux_loss` | The latent-prediction loss plus `variance_coeff` times the variance hinge. PPO's total gains `aux_loss_coeff` times this | Present and above 0. Missing means the module stopped forwarding it, and training then looks entirely normal |
 | `jepa_predict_loss` | The smooth-L1 latent-prediction loss alone, before its coefficient | Falls as the encoder learns; **a fall to 0 is a collapse, not a success** |
-| `jepa_latent_std` | The per-dimension standard deviation across the batch of the layer-normed predictor output, averaged; NaN (not measured) for a batch of one row | Near 1 (the targets are layer-normed). Near 0 means every observation maps to one latent |
+| `jepa_latent_std` | The per-dimension standard deviation of the layer-normed predictor output over batch x masked positions, averaged; NaN (not measured) for a batch of one row | At most about 1. Meant to fall to 0 on a collapse, but the position embeddings keep it near 0.87 even then, so a healthy reading proves nothing yet ([#4](https://github.com/ChuaCheowHuan/cda_jepa/issues/4)) |
 | `jepa_offdiag_cov` | Mean absolute off-diagonal covariance of the same latents | Rising while `jepa_latent_std` holds means dimensional collapse: the dimensions become redundant |
 | `jepa_world_loss` | The action-conditioned next-latent loss. PPO's total gains `world_model_coeff` times this | Only with `"world_model": true`. It has a non-zero floor: the next book depends on every agent's action and this conditions on one, so the floor is an opponent model, not underfitting |
 

@@ -165,12 +165,15 @@ class TestTheNextObsConnectorIsConditional:
     def test_other_encoders_do_not_ask_for_it(self, encoder_type):
         assert not needs_next_obs(encoder_type, None)
 
-    def test_without_the_world_model_it_is_not_asked_for(self):
-        assert not needs_next_obs(JEPA, {"world_model": False})
-
-    def test_with_the_world_model_it_is(self):
-        assert needs_next_obs(JEPA, {"world_model": True})
-
-    def test_the_default_is_read_when_the_spec_omits_it(self):
-        assert not needs_next_obs(JEPA, {})
-        assert not needs_next_obs(JEPA, None)
+    @pytest.mark.parametrize(
+        "spec, wanted",
+        [
+            ({"world_model": True}, True),
+            ({"world_model": False}, False),
+            ({}, False),
+            (None, False),
+        ],
+    )
+    def test_only_the_world_model_asks_for_it(self, spec, wanted):
+        """`{}` and None read the default, which is off."""
+        assert needs_next_obs(JEPA, spec) is wanted

@@ -18,7 +18,7 @@ license-files = ["LICENSE", "NOTICE", "third_party/ijepa/LICENSE", "third_party/
 dependencies = ["gym_continuousDoubleAuction>=2.2,<3", "torch", "numpy", "scipy"]
 
 [project.optional-dependencies]
-test = ["pytest"]
+test = ["pytest", "ruff"]
 
 [project.entry-points."gym_cda.extensions"]
 jepa = "cda_jepa:EXTENSION"
@@ -58,6 +58,10 @@ testpaths = ["tests"]
 line-length = 100
 # The authors' code, shipped unchanged (tests/test_packaging.py); never reformat it.
 extend-exclude = ["third_party"]
+
+[tool.ruff.lint]
+# Pinned, so a newer ruff's default rule set does not change what CI enforces.
+select = ["E4", "E7", "E9", "F"]
 
 [tool.ruff.format]
 quote-style = "preserve"

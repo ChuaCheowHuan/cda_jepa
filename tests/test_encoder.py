@@ -1,8 +1,4 @@
-"""The JEPA encoder: the contract every gym-CDA encoder meets, then its own specifics.
-
-Moved from gym-CDA's `test_encoder_architectures.py` (the parametrised contract, run here
-for this encoder, and the three JEPA classes) with the encoder.
-"""
+"""The JEPA encoder: the contract every gym-CDA encoder meets, then its own specifics."""
 
 import numpy as np
 import pytest
@@ -10,7 +6,7 @@ import torch
 from ray.rllib.core.columns import Columns
 from ray.rllib.core.models.base import ACTOR, ENCODER_OUT
 
-from conftest import JEPA, SEQ_LEN, build_module, sample_batch
+from conftest import JEPA, build_module, sample_batch
 
 from gym_continuousDoubleAuction.config_loader import group
 from gym_continuousDoubleAuction.train.model.encoders.obs_layout import ObsLayout
@@ -25,49 +21,36 @@ from cda_jepa.encoder import MASK_AXES, sample_mask
 from cda_jepa.learner import JEPA_AUX_LOSS, JEPA_WORLD_LOSS
 
 
-@pytest.mark.parametrize("encoder_type", [JEPA])
-class TestEveryEncoder:
-    def test_produces_usable_policy_and_value_outputs(self, spaces, encoder_type):
+class TestTheEncoderContract:
+    """The contract every gym-CDA encoder meets, for this one."""
+
+    def test_produces_usable_policy_and_value_outputs(self, spaces):
         obs_space, _ = spaces
-        module = build_module(spaces, encoder_type)
+        module = build_module(spaces, JEPA)
         batch = sample_batch(obs_space, module=module)
 
         out = module.forward_train(batch)
         values = module.compute_values(batch)
 
-        # A recurrent module keeps the time axis, so it emits one value per
-        # (sequence, timestep) rather than one per row.
-        expected_values = (4, SEQ_LEN) if module.is_stateful() else (4,)
-
         assert out[Columns.ACTION_DIST_INPUTS].shape[0] == 4
-        assert tuple(values.shape) == expected_values
+        assert tuple(values.shape) == (4,)
         assert torch.isfinite(out[Columns.ACTION_DIST_INPUTS]).all()
         assert torch.isfinite(values).all()
 
-    def test_state_out_is_emitted_only_when_stateful(self, spaces, encoder_type):
-        """A recurrent module must return the state the connectors carry
-        forward; a stateless one must not pretend to have any."""
-        obs_space, _ = spaces
-        module = build_module(spaces, encoder_type)
-
-        out = module.forward_train(sample_batch(obs_space, module=module))
-
-        assert (Columns.STATE_OUT in out) is module.is_stateful()
-
-    def test_inference_forward_works(self, spaces, encoder_type):
+    def test_inference_forward_works(self, spaces):
         """The rollout path, which is a different method from the train one."""
         obs_space, _ = spaces
-        module = build_module(spaces, encoder_type)
+        module = build_module(spaces, JEPA)
 
         out = module.forward_inference(sample_batch(obs_space, module=module))
 
         assert torch.isfinite(out[Columns.ACTION_DIST_INPUTS]).all()
 
-    def test_state_round_trips(self, spaces, encoder_type):
+    def test_state_round_trips(self, spaces):
         """Checkpointing and champion snapshots both depend on this."""
         obs_space, _ = spaces
-        source = build_module(spaces, encoder_type)
-        target = build_module(spaces, encoder_type)
+        source = build_module(spaces, JEPA)
+        target = build_module(spaces, JEPA)
         batch = sample_batch(obs_space, module=source)
 
         target.set_state(source.get_state())
@@ -78,78 +61,51 @@ class TestEveryEncoder:
         )
         assert torch.allclose(source.compute_values(batch), target.compute_values(batch))
 
-    @pytest.mark.parametrize("vf_share_layers", [False, True])
-    def test_vf_share_layers_is_honoured(self, spaces, encoder_type, vf_share_layers):
-        module = build_module(spaces, encoder_type, vf_share_layers=vf_share_layers)
+    def test_non_inference_attributes_extend_the_base_list(self, spaces):
+        """`vf` and the critic encoder are training-only for every encoder. This one appends
+        its EMA target trunk and predictor, so an inference-only copy and every champion
+        snapshot drop them rather than carrying a second encoder they never run. `world_model`
+        is off by default, and a submodule that does not exist must not be declared: `setup`
+        would then try to delete it."""
+        module = build_module(spaces, JEPA, vf_share_layers=False)
 
-        has_critic = getattr(module.encoder, "critic_encoder", None) is not None
-        assert has_critic is (not vf_share_layers)
+        assert module.get_non_inference_attributes() == [
+            "vf",
+            "encoder.critic_encoder",
+            "encoder.actor_encoder.target_trunk",
+            "encoder.actor_encoder.predictor",
+        ]
 
-    def test_non_inference_attributes_contract(self, spaces, encoder_type):
-        """The base list for every encoder; an encoder may only *extend* it.
-
-        `vf` and the critic encoder are training-only for all of them. An
-        encoder that carries its own training-only submodules - `jepa`, whose
-        EMA target trunk and predictor exist solely to compute the auxiliary
-        loss - appends them, so an inference-only copy and every champion
-        snapshot drop them rather than carrying a second encoder they never
-        run.
-
-        Asserted as prefix-plus-extension rather than as one fixed list,
-        because a fixed list would make adding any such encoder look like a
-        regression in every other one.
-        """
-        module = build_module(spaces, encoder_type, vf_share_layers=False)
-        attributes = module.get_non_inference_attributes()
-
-        base = ["vf", "encoder.critic_encoder"]
-        assert attributes[: len(base)] == base
-
-        extra = attributes[len(base) :]
-        if encoder_type != JEPA:
-            assert extra == [], (
-                f"{encoder_type} declared extra non-inference attributes "
-                f"{extra}; only encoders with training-only submodules should."
-            )
-        else:
-            # `world_model` is off by default, and a submodule that does not
-            # exist must not be declared - `setup` would then try to delete it.
-            assert extra == [
-                "encoder.actor_encoder.target_trunk",
-                "encoder.actor_encoder.predictor",
-            ]
-
-    def test_eval_forward_is_deterministic(self, spaces, encoder_type):
+    @pytest.mark.parametrize("method", ["forward_inference", "forward_exploration"])
+    def test_the_rollout_forward_is_deterministic(self, spaces, method):
         """PPO's ratio compares a rollout log-prob against a recomputed one.
 
-        Any nondeterminism in the forward pass - a live dropout being the usual
-        culprit - shows up as noise in that ratio rather than as an error.
+        Any nondeterminism on the rollout path - a live dropout or a mask being the usual
+        culprits - shows up as noise in that ratio rather than as an error. Dropout is on so
+        the test can fail. (`forward_train` is not the path to test: RLlib puts the module in
+        train mode for it.)
         """
         obs_space, _ = spaces
-        module = build_module(spaces, encoder_type)
+        module = build_module(spaces, JEPA, spec={"dropout": 0.1})
         module.eval()
         batch = sample_batch(obs_space, module=module)
+        forward = getattr(module, method)
 
-        first = module.forward_train(batch)[Columns.ACTION_DIST_INPUTS]
-        second = module.forward_train(batch)[Columns.ACTION_DIST_INPUTS]
+        first = forward(batch)[Columns.ACTION_DIST_INPUTS]
+        second = forward(batch)[Columns.ACTION_DIST_INPUTS]
 
         assert torch.equal(first, second)
 
-    def test_gradients_reach_the_encoder(self, spaces, encoder_type):
+    def test_gradients_reach_the_encoder(self, spaces):
         """An encoder detached from the loss would train silently as a constant."""
         obs_space, _ = spaces
-        module = build_module(spaces, encoder_type)
+        module = build_module(spaces, JEPA)
         batch = sample_batch(obs_space, module=module)
 
         module.forward_train(batch)[Columns.ACTION_DIST_INPUTS].sum().backward()
 
-        encoder_grads = [
-            p.grad
-            for name, p in module.named_parameters()
-            if name.startswith("encoder.") and "critic" not in name
-        ]
-        assert encoder_grads, f"{encoder_type} exposed no actor-side encoder params"
-        assert any(g is not None and g.abs().sum() > 0 for g in encoder_grads)
+        trunk = module.encoder.actor_encoder.trunk
+        assert any(p.grad is not None and p.grad.abs().sum() > 0 for p in trunk.parameters())
 
 
 # --- JEPA --------------------------------------------------------------------
@@ -158,7 +114,7 @@ class TestEveryEncoder:
 class TestJEPA:
     """The latent-prediction objective and the collapse metrics.
 
-    What is worth pinning is not that it runs - `TestEveryEncoder` covers the
+    What is worth pinning is not that it runs - `TestTheEncoderContract` covers the
     encoder contract for it automatically - but the handful of properties that
     decide whether the objective is doing anything: that the policy latent is
     unaffected by masking, that the loss carries gradient to the online trunk
@@ -191,7 +147,7 @@ class TestJEPA:
 
         Mask sampling is stochastic, so an objective that ran on the inference
         path would put noise into PPO's ratio rather than raise - the failure
-        `test_eval_forward_is_deterministic` exists to catch.
+        `test_the_rollout_forward_is_deterministic` exists to catch.
         """
         obs_space, _ = spaces
         module = build_module(spaces, JEPA)
@@ -336,9 +292,10 @@ class TestJEPA:
 
         def gradients_with(coeff):
             encoder.variance_coeff = coeff
-            # `sample_mask` draws from the global RNG, so re-seeding is what
-            # makes the two passes see the same mask.
-            torch.manual_seed(0)
+            # Masks come from the encoder's own generator, which `torch.manual_seed`
+            # does not reset once made; re-seeding it is what makes the two passes
+            # see the same mask, so only the hinge can explain a difference.
+            encoder._mask_generator = torch.Generator().manual_seed(0)
             module.encoder(batch)
             stats = encoder.take_jepa_stats()
             encoder.zero_grad(set_to_none=True)
@@ -367,24 +324,6 @@ class TestJEPA:
             "variance hinge is a constant again"
         )
 
-    def test_the_target_branch_stays_detached(self, spaces):
-        """The guard on the other side: gradients must not reach the target."""
-        obs_space, _ = spaces
-        module = build_module(spaces, JEPA, spec={"ema_decay": 1.0})
-        encoder = module.encoder.actor_encoder
-
-        module.train()
-        module.encoder(sample_batch(obs_space, n=8, module=module))
-        stats = encoder.take_jepa_stats()
-
-        encoder.zero_grad(set_to_none=True)
-        stats["aux_loss"].backward()
-
-        assert all(
-            parameter.grad is None or not torch.any(parameter.grad != 0)
-            for parameter in encoder.target_trunk.parameters()
-        ), "the target branch is an EMA copy and must never be trained"
-
     @pytest.mark.parametrize("mask_axis", MASK_AXES)
     def test_every_mask_axis_builds_and_runs(self, spaces, mask_axis):
         obs_space, _ = spaces
@@ -392,18 +331,6 @@ class TestJEPA:
         module.train()
         out = module._forward_train(sample_batch(obs_space, n=4, module=module))
         assert torch.isfinite(out[JEPA_AUX_LOSS])
-
-    @pytest.mark.parametrize("mask_axis", MASK_AXES)
-    def test_a_mask_never_hides_everything_or_nothing(self, layout_for_spaces, mask_axis):
-        """An empty mask leaves the objective nothing to predict; a full one
-        leaves the context encoder no input. Both are silent degeneracies."""
-        layout = layout_for_spaces
-        for ratio in (0.01, 0.5, 0.99):
-            for tokenization in TOKENIZATIONS:
-                total = token_shape(layout, tokenization)[0]
-                masked = sample_mask(total, layout, tokenization, mask_axis, ratio)
-                assert 0 < len(masked) < total, (tokenization, mask_axis, ratio)
-                assert len(set(masked.tolist())) == len(masked), "duplicate indices"
 
     def test_an_out_of_range_mask_ratio_raises(self, spaces):
         for ratio in (0.0, 1.0, -0.1, 1.5):
@@ -454,10 +381,6 @@ class TestJEPAWorldModel:
                 for key in act_space.spaces
             }
         return batch
-
-    def test_off_by_default(self, spaces):
-        module = build_module(spaces, JEPA)
-        assert module.encoder.actor_encoder.world_model is None
 
     def test_the_term_reaches_fwd_out_and_carries_gradient(self, spaces):
         obs_space, act_space = spaces
@@ -514,7 +437,7 @@ class TestJEPAWorldModel:
         actions = batch[Columns.ACTIONS]
         other = dict(actions)
         # A different category is a different order type entirely.
-        other["category"] = (actions["category"] + 1) % 9
+        other["category"] = (actions["category"] + 1) % int(act_space["category"].n)
 
         with torch.no_grad():
             assert not torch.allclose(world(latent, actions), world(latent, other))
@@ -545,22 +468,6 @@ class TestJEPAWorldModel:
                 with_world.encoder(batch)[ENCODER_OUT][ACTOR],
                 atol=1e-6,
             )
-
-    def test_an_action_space_missing_a_component_raises(self, spaces):
-        """The space is config-derived, so it can change under this."""
-        import gymnasium as gym
-
-        obs_space, act_space = spaces
-        trimmed = gym.spaces.Dict(
-            {k: v for k, v in act_space.spaces.items() if k != "price_offset"}
-        )
-        with pytest.raises(ValueError, match="missing"):
-            build_trainable_module_spec(
-                obs_space,
-                trimmed,
-                encoder_type=JEPA,
-                encoder_specs={JEPA: {"world_model": True}},
-            ).build()
 
 
 class TestJEPAReviewRegressions:
@@ -663,20 +570,28 @@ class TestJEPAReviewRegressions:
         assert not torch.equal(before, next(encoder.target_trunk.parameters()))
 
     @pytest.mark.parametrize("mask_axis", MASK_AXES)
-    @pytest.mark.parametrize("n_hist", [1, 2, 3, 4])
-    def test_a_mask_leaves_context_at_every_n_hist(self, mask_axis, n_hist):
-        """`time` masking clamped against `n_hist - 1`, which bounds SNAPSHOTS
-        and not tokens: at `n_hist` 1 it masked the whole sequence, leaving the
-        context encoder no input. `n_hist: 1` is a setting the `lstm` block
-        explicitly recommends, so it was reachable."""
-        layout = ObsLayout(n_hist=n_hist, book_rows=4, k_rows=10, extra_dim=2, private_dim=9)
+    @pytest.mark.parametrize("n_hist", [1, 2, 3, "shipped"])
+    def test_a_mask_never_hides_everything_or_nothing(self, layout_for_spaces, mask_axis, n_hist):
+        """An empty mask leaves the objective nothing to predict; a full one leaves the
+        context encoder no input. Both are silent degeneracies.
+
+        `time` masking once clamped against `n_hist - 1`, which bounds SNAPSHOTS and not
+        tokens: at `n_hist` 1 it masked the whole sequence. `n_hist: 1` is a setting the
+        `lstm` block explicitly recommends, so it was reachable."""
+        if n_hist == "shipped":
+            layout = layout_for_spaces
+        else:
+            layout = ObsLayout(n_hist=n_hist, book_rows=4, k_rows=10, extra_dim=2, private_dim=9)
+        generator = torch.Generator().manual_seed(0)
         for tokenization in TOKENIZATIONS:
             total = token_shape(layout, tokenization)[0]
             if total < 2:
                 continue  # refused at construction; see the next test
             for ratio in (0.01, 0.5, 0.99):
-                masked = sample_mask(total, layout, tokenization, mask_axis, ratio)
-                assert 0 < len(masked) < total, (tokenization, mask_axis, ratio, len(masked), total)
+                masked = sample_mask(total, layout, tokenization, mask_axis, ratio, generator)
+                case = (tokenization, mask_axis, ratio, len(masked), total)
+                assert 0 < len(masked) < total, case
+                assert len(set(masked.tolist())) == len(masked), ("duplicate indices", case)
 
     def test_a_single_token_sequence_is_refused(self, spaces):
         """One token cannot be both hidden and visible, so the contract

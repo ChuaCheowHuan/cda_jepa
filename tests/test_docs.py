@@ -9,7 +9,15 @@ import pytest
 from cda_jepa.encoder import JEPA_DEFAULTS
 
 ROOT = Path(__file__).resolve().parent.parent
-DOCS = sorted([ROOT / "README.md", ROOT / "CHANGELOG.md", *(ROOT / "docs").glob("*.md")])
+DOCS = sorted(
+    [
+        ROOT / "README.md",
+        ROOT / "CHANGELOG.md",
+        ROOT / "CLAUDE.md",
+        *(ROOT / "docs").glob("*.md"),
+        *(ROOT / ".claude" / "skills").glob("*/SKILL.md"),
+    ]
+)
 
 
 def test_the_settings_table_matches_the_defaults():

@@ -1,6 +1,6 @@
 """Carrying the JEPA latent-prediction loss from the encoder to the optimiser.
 
-Two classes, mirroring `moe_learner` rather than merging with it:
+Two classes, mirroring gym-CDA's `train.model.moe_learner` rather than merging with it:
 
   JEPARLModule    - takes the stats the JEPA encoder left behind and puts them
                     in `fwd_out`, which is the only channel from a module's
@@ -125,7 +125,7 @@ class JEPARLModule(CDAPPOTorchRLModule):
         gradients on, and no optimiser step follows it. With `vf_share_layers: true` it goes
         through the same JEPA encoder as the policy, which then ran the mask-and-predict
         objective and took an EMA step of the target trunk it had no business taking: one more
-        EMA step per module per iteration than optimiser steps (docs/29 R-15, #185). The
+        EMA step per module per iteration than optimiser steps (gym-CDA R-15, #185). The
         objective is switched off for the duration and restored after, even on an error.
         """
         encoders = [m for m in self.encoder.modules() if hasattr(m, "objective_enabled")]
@@ -239,12 +239,11 @@ class CDAJEPALearner(CDAPPOTorchLearner):
             {
                 JEPA_AUX_LOSS_KEY: aux_loss,
                 JEPA_PREDICT_LOSS_KEY: fwd_out[JEPA_PREDICT_LOSS],
-                # The metric that matters. A collapsed JEPA drives its
+                # The metric meant to matter. A collapsed JEPA drives its
                 # prediction loss to ZERO, which reads as success - the loss
-                # alone cannot tell a working encoder from a dead one. This
-                # goes to 0 exactly when every observation maps to the same
-                # latent, and should sit near 1.0, the scale LayerNormed
-                # targets already have.
+                # alone cannot tell a working encoder from a dead one. This is
+                # meant to fall to 0 when every observation maps to the same
+                # latent; today it does not (cda_jepa #4).
                 JEPA_LATENT_STD_KEY: fwd_out[JEPA_LATENT_STD],
                 # Dimensional collapse: variance held up while the dimensions
                 # become redundant, which `latent_std` alone would miss.

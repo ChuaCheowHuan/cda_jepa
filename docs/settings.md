@@ -32,9 +32,9 @@ These were the `_note` texts of gym-CDA's `encoder_specs.jepa` block.
 
 **The policy latent.** The POLICY latent is always computed from the UNMASKED observation - the agent acts on everything it was given. Masking exists only for the auxiliary loss, and runs in train mode only, so a training step costs two trunk passes plus the target's while inference costs exactly one, the same as `transformer`.
 
-**`mask_axis`.** What a mask hides. 'level' hides a contiguous depth band in every snapshot (what depth is consistent with this touch?); 'time' hides whole snapshots (where is the book heading?); 'random' uses no structure and is the ablation baseline. Under 'level' tokenisation there is only one snapshot, so all three degenerate to random.
+**`mask_axis`.** What a mask hides. 'level' hides a contiguous depth band in every snapshot (what depth is consistent with this touch?); 'time' hides whole snapshots (where is the book heading?); 'random' uses no structure and is the ablation baseline. Under 'level' and 'time' tokenisation every axis currently gives a random mask, including 'level' under 'level' tokenisation, which does have a depth axis ([#9](https://github.com/ChuaCheowHuan/cda_jepa/issues/9)).
 
-**Collapse.** WATCH jepa_latent_std IN THE LEARNER METRICS. A collapsed JEPA drives its prediction loss to ZERO, which reads as success - loss and throughput look identical to a working one. latent_std goes to 0 exactly when every observation maps to the same latent and should sit near 1.0. variance_coeff weights a VICReg-style hinge that pushes back once it starts falling. Both the metric and the hinge are computed on the ONLINE side (the predictor's output), not on the EMA target: read off the target they carried no gradient at all and the term was a constant added to the loss - finding S2-9; jepa_offdiag_cov catches dimensional collapse, where variance holds up but the dimensions become redundant.
+**Collapse.** A collapsed JEPA drives its prediction loss to ZERO, which reads as success - loss and throughput look identical to a working one. jepa_latent_std is meant to show it, but it is taken over batch x masked positions, so the predictor's position embeddings keep it near 0.87 even for a dead encoder ([#4](https://github.com/ChuaCheowHuan/cda_jepa/issues/4)). variance_coeff weights a VICReg-style hinge on the same statistic. Its target of 1.0 is reachable on layer-normed rows only when the batch mean is zero in every dimension, so the hinge is never fully off: about a fifth of aux_loss at initialisation, pushing the batch mean of the predictions toward zero ([#7](https://github.com/ChuaCheowHuan/cda_jepa/issues/7)). Both the metric and the hinge are computed on the ONLINE side (the predictor's output), not on the EMA target: read off the target they carried no gradient at all and the term was a constant added to the loss - finding S2-9; jepa_offdiag_cov catches dimensional collapse, where variance holds up but the dimensions become redundant.
 
 **`ema_decay`.** How slowly the target encoder follows the online one. The asymmetry - a frozen, lagging target the predictor has to chase - is the primary anti-collapse mechanism; a constant encoder cannot satisfy a moving target. Higher is slower and more stable; too high and the target carries no signal.
 
@@ -45,7 +45,8 @@ These were the `_note` texts of gym-CDA's `encoder_specs.jepa` block.
 - `mask_axis` must be one of `level`, `time`, `random`, and `mask_ratio` must be strictly between
   0 and 1. The number of hidden tokens is clamped so at least one is hidden and one stays visible.
 - `num_layers` and `predictor_layers` are at least 1.
-- A tokenisation has only the axes it has: `level` tokenisation is one snapshot and `time`
-  tokenisation makes a snapshot one token, so asking for the missing axis gives a random mask.
+- Only `both` tokenisation gets a structured mask. Under `level` and `time` tokenisation every
+  `mask_axis` gives a random mask, `level` under `level` included
+  ([#9](https://github.com/ChuaCheowHuan/cda_jepa/issues/9)).
 - The pretrainer's own settings (steps, batch size, corpus) are not here: they are its CLI flags,
   with defaults in `cda_jepa/config.py` ([pretraining.md](pretraining.md)).

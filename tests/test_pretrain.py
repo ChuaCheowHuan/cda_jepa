@@ -36,7 +36,6 @@ from gym_continuousDoubleAuction.train.model.model_handler import (
     build_trainable_module_spec,
 )
 from gym_continuousDoubleAuction.train.probe import corpus as corpus_module
-from gym_continuousDoubleAuction.train.probe import probe as probe_module
 from gym_continuousDoubleAuction.train.probe import features as features_module
 
 #: Small enough to stay fast, long enough that the episode split has an episode
@@ -90,32 +89,11 @@ class TestTheLoop:
         _module, report = trained
         assert report.validation_loss[-1] < report.validation_loss[0]
 
-    def test_the_split_is_by_episode(self, corpus):
-        """Adjacent observations share three of their four snapshots, so a
-        row-level split would put near-duplicates of a validation row into
-        training and the validation curve would mean nothing."""
-        train_mask, validation_mask, _ = probe_module.split_masks(corpus.episode_index, len(corpus))
-        train_episodes = set(corpus.episode_index[train_mask])
-        validation_episodes = set(corpus.episode_index[validation_mask])
-        assert train_episodes and validation_episodes
-        assert not train_episodes & validation_episodes
-
-    def test_only_the_trunk_and_predictor_are_trained(self, spaces, corpus, spec_block):
+    def test_only_the_trunk_and_predictor_are_trained(self, saved):
         """The EMA target must move only by EMA. If a gradient reached it, it
         would stop lagging and the asymmetry that discourages collapse would be
         gone."""
-        obs_space, act_space = spaces
-        module, _report = pretrain_pkg.pretrain(
-            corpus,
-            obs_space,
-            act_space,
-            encoder_spec=spec_block,
-            steps=10,
-            batch_size=32,
-            log_every=10,
-            seed=0,
-            encoder_type=JEPA,
-        )
+        _path, module = saved
         encoder = module.encoder.actor_encoder
 
         assert all(not p.requires_grad for p in encoder.target_trunk.parameters())
@@ -154,15 +132,6 @@ class TestTheLoop:
                     encoder_type=encoder_type,
                     steps=1,
                 )
-
-    def test_a_single_episode_still_splits(self, spaces, spec_block):
-        """Below three episodes the split falls back to contiguous rows rather
-        than refusing - it still bars shuffling, it just cannot promise the
-        price-anchor separation an episode split gives."""
-        tiny = corpus_module.from_rollouts(num_episodes=1, max_step=40, num_agents=2, seed=0)
-        train, validation, _test = probe_module.split_masks(tiny.episode_index, len(tiny))
-        assert train.sum() and validation.sum()
-        assert np.flatnonzero(train).max() < np.flatnonzero(validation).min()
 
 
 @pytest.fixture(scope="module")

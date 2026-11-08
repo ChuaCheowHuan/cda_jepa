@@ -13,19 +13,9 @@ import itertools
 import pytest
 import torch
 
-from gym_continuousDoubleAuction.envs.continuousDoubleAuction_env import (
-    continuousDoubleAuctionEnv,
-)
 from conftest import JEPA, build_module, sample_batch
 
 from cda_jepa import encoder as jepa_module
-
-
-@pytest.fixture(scope="module")
-def spaces():
-    env = continuousDoubleAuctionEnv({})
-    agent = env.agents[0]
-    return env.get_observation_space(agent), env.get_action_space(agent)
 
 
 def _shared_module(spaces, **spec):

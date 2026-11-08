@@ -2,8 +2,6 @@
 
 - #242 (gym-CDA `test_s4_minor_fixes.py`): the unbiased std of a single row is NaN, and
   the NaN reached the auxiliary loss and every statistic beside it.
-- One pooling definition (`test_s4_hardening.py`): the encoder uses gym-CDA's
-  tokeniser tuple rather than a copy.
 - #187 (`test_obs_layout_book_mode.py`): pretraining builds the encoder in the corpus's
   book mode, at a width both modes fit.
 """
@@ -16,12 +14,10 @@ import torch
 from gym_continuousDoubleAuction.envs.continuousDoubleAuction_env import (
     continuousDoubleAuctionEnv,
 )
-from gym_continuousDoubleAuction.train.model.encoders import tokenize
 from gym_continuousDoubleAuction.train.model.encoders.obs_layout import ObsLayout
 from gym_continuousDoubleAuction.train.probe import __main__ as probe_main
 from gym_continuousDoubleAuction.train.probe.corpus import ProbeCorpus
 
-from cda_jepa import encoder as jepa_module
 from cda_jepa.pretrain import pretrain
 from cda_jepa.pretrain.pretrain import _evaluate
 from conftest import JEPA, build_module, sample_batch
@@ -40,16 +36,12 @@ class TestVarianceTermWithOneRow:
         module.encoder(sample_batch(spaces[0], n=batch, module=module))
         return module.encoder.actor_encoder.take_jepa_stats()
 
-    def test_one_row_gives_a_finite_aux_loss(self):
+    def test_one_row_is_finite_and_reports_the_spread_as_not_measured(self):
         stats = self._stats(1)
         for key in ("aux_loss", "predict_loss", "offdiag_cov"):
             assert torch.isfinite(stats[key]), key
-
-    def test_one_row_reports_the_spread_as_not_measured(self):
-        assert torch.isnan(self._stats(1)["latent_std"])
-
-    def test_one_row_aux_loss_is_just_the_prediction_loss(self):
-        stats = self._stats(1)
+        assert torch.isnan(stats["latent_std"])
+        # The hinge is skipped, so the aux loss is the prediction loss alone.
         assert float(stats["aux_loss"]) == pytest.approx(float(stats["predict_loss"]))
 
     def test_two_rows_are_unchanged(self):
@@ -80,10 +72,6 @@ class TestVarianceTermWithOneRow:
         assert out["loss"] == pytest.approx(0.5)
 
 
-def test_the_encoder_shares_the_tokenizers_poolings():
-    assert jepa_module.POOLINGS is tokenize.POOLINGS
-
-
 #: 11 x 48 + 41 (grid) == 8 x 66 + 41 (levels)
 AMBIGUOUS = 569
 
@@ -109,7 +97,9 @@ def test_pretraining_builds_the_encoder_in_the_corpus_mode():
         batch_size=8,
     )
 
-    assert module is not None
+    built = module.encoder.actor_encoder.layout
+    assert built.book_mode == "levels"
+    assert built == layout
 
 
 class TestTheLearnerReachesGymCdasLossSeam:

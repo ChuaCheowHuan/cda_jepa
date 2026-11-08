@@ -347,7 +347,7 @@ flowchart TD
    have to become encoder-aware — a deliberate change, not an incidental one.
 3. **Keep the EMA buffer out of the optimiser** and *inside* the `state_dict`, so
    `test_state_round_trips` and the champion-snapshot path keep passing.
-4. **Eval must be deterministic.** `test_eval_forward_is_deterministic` exists because PPO's ratio
+4. **Eval must be deterministic.** `test_the_rollout_forward_is_deterministic` exists because PPO's ratio
    compares a rollout log-prob against a recomputed one. Mask sampling is stochastic, so masking
    must be **strictly off outside `_forward_train`** — the inference path sees all tokens. This is
    a harder constraint than dropout's and the reason the diagram branches on `training?`.
@@ -488,7 +488,7 @@ A JEPA change that is not measured against these is not evidence.
 | Metric | Where | Why it must exist |
 |---|---|---|
 | `jepa_aux_loss` | Learner, per module | The term itself. Meaningless alone — see the next row |
-| `jepa_latent_std` | Learner, per module | **Collapse detector.** A collapsed JEPA has aux loss → 0, which looks like success. This is the direct analogue of `moe_max_expert_share` and exists for the identical reason |
+| `jepa_latent_std` | Learner, per module | **Collapse detector.** A collapsed JEPA has aux loss → 0, which looks like success. This is the direct analogue of `moe_max_expert_share` and exists for the identical reason. As built it does not yet see a collapse ([#4](https://github.com/ChuaCheowHuan/cda_jepa/issues/4)) |
 | `jepa_latent_offdiag_cov` | Learner, per module | Dimensional collapse: variance held up while dimensions become redundant |
 | `vf_explained_var` | already logged | S1-1's tell. If this is still ~0, no encoder result means anything |
 | Probe score (§4.1) | offline | Reward-free encoder quality, comparable across architectures |
@@ -541,7 +541,7 @@ is the piece worth starting.
 | 1 | ~~**Proposal A** — offline probe harness and reward-free encoder scores~~ — **done**, see [23](https://github.com/ChuaCheowHuan/gym-continuousDoubleAuction/blob/master/docs/23_probe_harness.md) | **nothing** | S |
 | 2 | Generalise the aux-loss seam: `ENCODER_AUX_LOSS`, encoder-aware `_collect` and `get_non_inference_attributes` | — | S |
 | 3 | ~~**Proposal B** — the `jepa` encoder~~ — **done**, all three mask axes | — | M |
-| 4 | Time-axis masking in Proposal B | 0 (S2-6), 3 | S |
+| 4 | ~~Time-axis masking in Proposal B~~ — **done**, `mask_axis: "time"` | 0 (S2-6), 3 | S |
 | 5 | ~~**Proposal D** — offline pretraining, with a fingerprint guard~~ — **done**, see [pretraining.md](pretraining.md) | 3 | M |
 | 6 | ~~**Proposal C** — action-conditioned world model~~ — **done**, `world_model: true` | 0, 3 | M–L |
 | 7 | Intrinsic reward from predictor error | 0, 6 | M, and only once S1-3's fix is shown to hold in training |
@@ -564,19 +564,3 @@ gap, and the other is a refactor the second auxiliary loss makes overdue.
 - [Connecting Joint-Embedding Predictive Architecture with Contrastive Self-Supervised Learning (NeurIPS 2024)](https://proceedings.neurips.cc/paper_files/paper/2024/file/04a80267ad46fc730011f8760f265054-Paper-Conference.pdf)
 - [JEPA: Fundamentals, Mathematics, and Literature Review — University of Tartu](https://kodu.ut.ee/~hadachi/Lecture_Notes/JEPA.html)
 - [awesome-jepa — curated JEPA resources](https://github.com/AbdelStark/awesome-jepa)
-
-## Review fixes (R-15, R-16)
-
-- **`order_slot` is embedded** (R-16, #186). The world model's action embedding listed three of the
-  env's four discrete heads; `order_slot`, which says which of the agent's own orders a modify or
-  cancel touches, was added to the action later and left out, so "cancel my first order" and "cancel
-  my third" embedded alike. `DISCRETE_ACTIONS + BOX_ACTIONS` is now held equal to the env's
-  `ACTION_KEYS` by a test, so the next new head fails loudly. World-model weights saved before this
-  change have no `order_slot` table and will not load into a model built after it.
-- **The value pass runs no objective** (R-15, #185). With `vf_share_layers: true`, PPO's advantage
-  computation (`compute_values`, in the learner connector) goes through the same JEPA encoder as the
-  policy, in training mode with gradients on, and no optimiser step follows it. The encoder used to run
-  the mask-and-predict objective and take an EMA step there: measured over one real iteration, 8 EMA
-  steps against 6 optimiser steps. `JEPARLModule.compute_values` now switches the objective off for its
-  duration, so EMA steps equal optimiser steps (6 and 6). Mask sampling also has its own
-  generator, so passes that train nothing no longer move a seeded run's global torch RNG.
