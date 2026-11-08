@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- **Tests pruned and hardened.** The variance-hinge gradient test pinned its mask with
+  `torch.manual_seed`, which stopped working when masks got their own generator, so the two passes
+  it compares saw different masks, and it passed with the hinge detached (#25); it now reseeds the
+  encoder's generator. The determinism test checked `forward_train`, which RLlib runs in train
+  mode, with dropout off; it now checks the rollout methods with dropout on (#26).
+  `test_packaging` works on the documented editable install (#8). Duplicates and tests of gym-CDA's own behaviour are gone: a second "target takes no
+  gradient" test, a second "action space missing a head" test, the shipped-layout mask test
+  (folded into the `n_hist` one), the episode-split tests (gym-CDA's `test_probe`), the pooling
+  identity check, `world_model` off by default (the settings table covers it), the stateful and
+  `vf_share_layers` branches of the encoder contract, and a second pretraining run that repeated
+  the `saved` fixture.
+- **ruff's lint rules are pinned** (`E4`, `E7`, `E9`, `F`) and `ruff` is in the `test` extra, so
+  `ruff check .` and `ruff format --check .` give the same answer on any ruff version.
+- **Docs say what the code does today.** `jepa_latent_std` does not yet detect a collapse (#4),
+  the variance hinge is never fully off (#7), only one Learner works (#6), `level` masks under
+  `level` tokenisation are random (#9). Stale references to gym-CDA paths and old names in the
+  code are fixed (#15). `docs/pretraining.md` loses gym-CDA's section numbers, fixes a broken
+  table, and says to load only trusted checkpoints. `docs/jepa.md` loses its review-fix log; the
+  one note a user needs (old world-model weights do not load) is in `docs/migration.md`.
+- **Agent setup.** `CLAUDE.md`, and two skills in `.claude/skills/`: `jepa-dev-setup` and
+  `jepa-collapse-check`, whose script measures the collapse metric on random, identical and
+  blind-trunk inputs.
+
 - **The equivalence test is removed.** `tests/test_equivalence.py` compared this package with
   gym-CDA's built-in `jepa`, which gym-CDA 2.3 and later no longer ship, so it always skipped.
   Its result is recorded in `docs/migration.md`.
