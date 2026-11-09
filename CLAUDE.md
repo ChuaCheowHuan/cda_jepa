@@ -33,7 +33,8 @@ pretrainer (`cda_jepa/pretrain/`). gym-CDA finds it through the `gym_cda.encoder
   Set `encoder._mask_generator` instead.
 - Only the actor's sub-encoder runs the objective (`JEPARLModule.setup`); `compute_values` turns
   it off so the value pass takes no EMA step.
-- `jepa_latent_std` does not yet detect a collapse (#4): check with skill `jepa-collapse-check`.
+- `jepa_latent_std` is the across-batch spread per masked position, so it sees a blind trunk (#4);
+  after changing `_jepa_loss`, check it with skill `jepa-collapse-check`.
 
 ## Skills
 

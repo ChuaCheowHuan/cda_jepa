@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- **Fixes from the agent-labelled review issues.**
+  `jepa_latent_std` is now the spread across the batch at each masked position, so identical
+  observations and a blind trunk read near zero instead of the predictor's positional ~0.87 (#4);
+  `jepa_offdiag_cov` follows the same axis. The variance hinge's target is now 0.2: the corrected
+  statistic's healthy scale is about 0.2, and the old 1.0 target made the hinge dominate the
+  objective (the target remains the human decision in #22). `level` masking under `level`
+  tokenisation hides a
+  contiguous band and keeps the global token visible, instead of silently drawing a random mask
+  (#9). `CDAJEPALearner` unwraps RLlib's DDP wrapper before reading the encoder config, so
+  `num_learners > 1` no longer raises (#6). The mask generator's state travels in the encoder's
+  `state_dict` as `_mask_state`, so a resumed run continues the stream (#13). The EMA step is one
+  fused `_foreach_lerp_`, non-CPU mask draws happen on the device, and pretraining has an
+  objective-only forward path that skips the discarded policy pass (#14, #12).
+- **The pretrainer validates its arguments** (`steps`, `batch_size`, `lr`, `log_every`), averages
+  `train_loss` over the logging interval so it is comparable with validation, gives validation its
+  own seeded mask generator, and runs it with dropout off (#12). `--log-every 0` is an argparse
+  error, not a `ZeroDivisionError`.
+- **The encoder no longer imports I-JEPA's top-level `src` package.** `_gather` is the one-line
+  `torch.gather` it used, written here, so a user's own `src/` package cannot break
+  `import cda_jepa.encoder` (#5). The fork still ships unchanged and `test_packaging` still checks
+  its bytes.
+- **CI and packaging hygiene.** The workflow has `permissions: contents: read`, actions pinned to
+  commit SHAs, and a Dependabot config for `github-actions` (#20, #21). `scipy` is no longer a
+  default dependency: nothing imports LeJEPA yet, so it is the optional `cda-jepa[lejepa]` extra
+  (#19).
 - **Tests pruned and hardened.** The variance-hinge gradient test pinned its mask with
   `torch.manual_seed`, which stopped working when masks got their own generator, so the two passes
   it compares saw different masks, and it passed with the hinge detached (#25); it now reseeds the

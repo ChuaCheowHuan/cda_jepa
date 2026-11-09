@@ -10,6 +10,8 @@ Selecting this package's encoder must swap in *both* its module and its learner 
 and selecting anything else must leave both at gym-CDA's defaults.
 """
 
+import math
+
 import pytest
 import ray
 import torch
@@ -87,7 +89,11 @@ class TestTheAuxLossReachesTheOptimiser:
 
         assert JEPA_LATENT_STD_KEY in learner_results
         assert JEPA_OFFDIAG_COV_KEY in learner_results
-        assert learner_results[JEPA_LATENT_STD_KEY] > 0.1
+        # One PPO iteration is far too early for a healthy spread - the
+        # corrected metric starts near zero on a fresh encoder (#4) - so the
+        # claim here is only that the number reached the Learner and is finite.
+        assert math.isfinite(learner_results[JEPA_LATENT_STD_KEY])
+        assert learner_results[JEPA_LATENT_STD_KEY] >= 0.0
 
     def test_the_encoder_is_trained(self):
         after = dict(self.algo.env_runner.module[self.pid].named_parameters())

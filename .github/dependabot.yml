@@ -1,0 +1,8 @@
+version: 2
+updates:
+  # The workflow pins actions to commit SHAs so a moved tag cannot change what CI
+  # runs. This keeps those pins current without hand-editing them.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

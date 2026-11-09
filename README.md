@@ -18,7 +18,7 @@ it moved here; [docs/migration.md](docs/migration.md) covers what changed.
 
 ```mermaid
 flowchart LR
-    IJ["ijepa fork<br/>git submodule, installed unchanged as src"] -->|"apply_masks"| CJ["cda_jepa<br/>encoder, module, Learner, pretrainer"]
+    IJ["ijepa fork<br/>git submodule, installed unchanged as src"] -.->|"gather written here;<br/>no runtime import"| CJ["cda_jepa<br/>encoder, module, Learner, pretrainer"]
     LJ["lejepa fork<br/>git submodule, installed unchanged"] -.->|"installed; SIGReg planned opt-in"| CJ
     CJ -->|"entry points gym_cda.encoders<br/>and gym_cda.extensions"| GYM["gym-CDA<br/>builds jepa when a run selects it"]
     GYM -->|"encoder registry, tokenizer, transformer blocks,<br/>PPO Learner, pretrained-weights format, probe corpus"| CJ
@@ -37,7 +37,9 @@ pip install "gym_continuousDoubleAuction @ git+https://github.com/ChuaCheowHuan/
 pip install "git+https://github.com/ChuaCheowHuan/cda_jepa"
 ```
 
-pip fetches the two forks (git submodules) itself. Installing changes no run.
+pip fetches the two forks (git submodules) itself. Installing changes no run. `scipy` is not a
+default dependency: nothing imports LeJEPA yet, so it is only needed with the optional
+`cda-jepa[lejepa]` extra.
 
 ## Enable
 
@@ -56,7 +58,7 @@ Selecting `jepa` without `"jepa"` in `extensions_enabled` is refused.
 | | |
 |---|---|
 | Tokenisation | either gym-CDA book mode (`grid`, `levels`); `tokenization` `both`, `time` or `level` |
-| Learners | one (`num_learners` 0 or 1). With more, the Learner reads `.encoder` off RLlib's DDP wrapper and raises ([#6](https://github.com/ChuaCheowHuan/cda_jepa/issues/6)). The loss is computed on the actor's encoder only |
+| Learners | any number; the Learner unwraps RLlib's DDP wrapper before reading the encoder config (#6). The loss is computed on the actor's encoder only |
 | Composition | `CDAJEPALearner` subclasses gym-CDA's PPO Learner and keeps the MoE term; other extensions' mixins (CBP) wrap it |
 | World model | `"world_model": true` adds `Columns.NEXT_OBS` to the train batch; nothing else does |
 | Pretraining | `python -m cda_jepa.pretrain`, then `pretrained_encoder_path` ([docs/pretraining.md](docs/pretraining.md)) |
@@ -66,18 +68,19 @@ Selecting `jepa` without `"jepa"` in `extensions_enabled` is refused.
 
 A collapsed JEPA maps every observation to one latent, which makes its prediction loss zero and
 reads as success. `jepa_latent_std` and `jepa_offdiag_cov` are the metrics meant to show it
-([docs/metrics.md](docs/metrics.md)), but today `jepa_latent_std` cannot: it measures spread across
-masked positions, so it reads about 0.87 for a dead encoder as well as a healthy one
-([#4](https://github.com/ChuaCheowHuan/cda_jepa/issues/4)). Until that is fixed, treat a healthy
-reading as no evidence either way.
+([docs/metrics.md](docs/metrics.md)). `jepa_latent_std` is the per-dimension standard deviation
+across the batch at each masked position, so it falls to near zero when the encoder ignores its
+input; positional spread alone no longer keeps it high (#4). A healthy *trained* reading is above
+0.1; a fresh encoder starts near zero. The pretrainer refuses to save a run below that.
 
 ## What comes from the forks
 
 The forks are installed unchanged, byte for byte from pinned commits: I-JEPA's `src` package
 (a top-level package named `src`, because that is how the authors' code imports itself) and the
-`lejepa` package. Today the encoder uses I-JEPA's `apply_masks` to gather tokens; the LeJEPA
-objective and I-JEPA's block masks are planned as opt-in settings. [docs/provenance.md](docs/provenance.md)
-says what is used, what is not, and why.
+`lejepa` package. The encoder does not import either at runtime: the one I-JEPA function it used,
+`apply_masks`, is a `torch.gather` now written here, so a user's own `src/` package cannot shadow
+it (#5). The LeJEPA objective and I-JEPA's block masks are planned as opt-in settings.
+[docs/provenance.md](docs/provenance.md) says what is used, what is not, and why.
 
 ## Documentation
 
@@ -92,6 +95,7 @@ package uses from gym-CDA.
 ## License
 
 This package's own code is MIT, the same as gym-CDA, from which it came. The I-JEPA and LeJEPA
-code it installs is CC BY-NC 4.0 (non-commercial); see [NOTICE](NOTICE). The encoder imports
-I-JEPA's `apply_masks` at import time, so using the package as it stands needs that code too
-([#24](https://github.com/ChuaCheowHuan/cda_jepa/issues/24)).
+code it installs is CC BY-NC 4.0 (non-commercial); see [NOTICE](NOTICE). The encoder no longer
+imports either fork at runtime (#5), but both still ship in the distribution. Whether an MIT
+package should carry CC BY-NC code at all is
+[#24](https://github.com/ChuaCheowHuan/cda_jepa/issues/24).

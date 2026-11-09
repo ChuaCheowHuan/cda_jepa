@@ -488,7 +488,7 @@ A JEPA change that is not measured against these is not evidence.
 | Metric | Where | Why it must exist |
 |---|---|---|
 | `jepa_aux_loss` | Learner, per module | The term itself. Meaningless alone — see the next row |
-| `jepa_latent_std` | Learner, per module | **Collapse detector.** A collapsed JEPA has aux loss → 0, which looks like success. This is the direct analogue of `moe_max_expert_share` and exists for the identical reason. As built it does not yet see a collapse ([#4](https://github.com/ChuaCheowHuan/cda_jepa/issues/4)) |
+| `jepa_latent_std` | Learner, per module | **Collapse detector.** A collapsed JEPA has aux loss → 0, which looks like success. This is the direct analogue of `moe_max_expert_share` and exists for the identical reason. It measures spread across the batch at each masked position, so a dead encoder reads near 0 rather than the predictor's positional ~0.87 ([#4](https://github.com/ChuaCheowHuan/cda_jepa/issues/4)) |
 | `jepa_latent_offdiag_cov` | Learner, per module | Dimensional collapse: variance held up while dimensions become redundant |
 | `vf_explained_var` | already logged | S1-1's tell. If this is still ~0, no encoder result means anything |
 | Probe score (§4.1) | offline | Reward-free encoder quality, comparable across architectures |

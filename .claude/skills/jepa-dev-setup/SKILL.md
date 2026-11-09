@@ -37,6 +37,8 @@ submodules, so nothing runs until all four are in place.
 
 - Mask sampling has its own generator (`TorchJEPAEncoder._mask_rng`). `torch.manual_seed` does
   not reset it once an encoder has drawn a mask: to pin a mask, set
-  `encoder._mask_generator = torch.Generator().manual_seed(n)` before the forward.
+  `encoder._mask_generator = torch.Generator().manual_seed(n)` before the forward. The generator's
+  state also travels in `_mask_state` (a buffer), so a restored checkpoint continues the stream;
+  setting `_mask_generator` by hand overrides it for that encoder.
 - On gym-CDA 2.2, which still ships its own `jepa`, the tests build this package's encoder under
   the name `conftest.JEPA` (`_jepa_ext`). Build with `JEPA`, never the literal `"jepa"`.

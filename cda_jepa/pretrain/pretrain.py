@@ -184,26 +184,62 @@ def _batches(
 
 
 @torch.no_grad()
-def _evaluate(encoder, module, rows, corpus, batch_size) -> Dict[str, float]:
+def _evaluate(encoder, module, rows, corpus, batch_size, mask_seed: int = 0) -> Dict[str, float]:
     """Objective on held-out episodes.
 
-    Runs with the module in *train* mode, because the objective only exists
-    there - masking is off in eval, by design, so an eval-mode pass would
-    report nothing at all. `no_grad` is what makes it an evaluation.
+    Runs with the module in *eval* mode except that the encoder's own training
+    flag stays on, because the objective only exists in train mode - masking is
+    off in eval, by design, so an eval-mode pass would report nothing at all.
+    Its children stay in eval mode, so dropout is off. `no_grad` is what makes
+    it an evaluation.
+
+    Validation gets its own freshly seeded mask generator, restored afterwards,
+    so how often validation runs cannot change the masks training draws (#12).
+    A one-row chunk still reports NaN, which is "not measured", not a datapoint
+    to average in (gym-CDA #242).
     """
+    was_training = module.training if module is not None else None
+    if module is not None:
+        module.eval()
+        # `module.eval()` also put the encoder in eval mode, where `_forward`
+        # skips the objective. Only the top-level flag goes back on; its
+        # children (dropout included) stay in eval.
+        encoder.training = True
+
+    saved_generator = getattr(encoder, "_mask_generator", None)
+    saved_state = saved_generator.get_state() if saved_generator is not None else None
+    saved_mask_state = getattr(encoder, "_mask_state", None)
+    saved_mask_state = saved_mask_state.clone() if torch.is_tensor(saved_mask_state) else None
+    encoder._mask_generator = torch.Generator().manual_seed(mask_seed)
+
     losses, stds = [], []
-    for start in range(0, len(rows), batch_size):
-        chunk = rows[start : start + batch_size]
-        encoder({Columns.OBS: torch.from_numpy(corpus.obs[chunk])})
-        stats = encoder.take_jepa_stats()
-        if stats is None:
-            continue
-        losses.append(float(stats["predict_loss"]))
-        # A one-row chunk reports NaN (the spread of one row is undefined); it
-        # is "not measured", not a datapoint to average in (gym-CDA #242).
-        std = float(stats["latent_std"])
-        if math.isfinite(std):
-            stds.append(std)
+    try:
+        for start in range(0, len(rows), batch_size):
+            chunk = rows[start : start + batch_size]
+            obs = torch.from_numpy(corpus.obs[chunk])
+            if hasattr(encoder, "forward_objective"):
+                stats = encoder.forward_objective(obs)
+            else:
+                # Kept for callers that only expose the encoder's forward.
+                encoder({Columns.OBS: obs})
+                stats = encoder.take_jepa_stats()
+            if stats is None:
+                continue
+            losses.append(float(stats["predict_loss"]))
+            std = float(stats["latent_std"])
+            if math.isfinite(std):
+                stds.append(std)
+    finally:
+        if saved_generator is not None:
+            saved_generator.set_state(saved_state)
+            encoder._mask_generator = saved_generator
+        else:
+            encoder._mask_generator = None
+        if saved_mask_state is not None:
+            encoder._mask_state = saved_mask_state
+        if module is not None:
+            module.train(was_training)
+
     return {
         "loss": float(np.mean(losses)) if losses else float("nan"),
         "latent_std": float(np.mean(stds)) if stds else float("nan"),
@@ -244,8 +280,18 @@ def pretrain(
 
     Raises:
         ValueError: if `encoder_type` names an encoder with no JEPA objective,
-            or the corpus is too small to split.
+            the corpus is too small to split, or `steps`, `batch_size`, `lr` or
+            `log_every` is not usable.
     """
+    if steps < 1:
+        raise ValueError(f"steps must be >= 1; got {steps}.")
+    if batch_size < 1:
+        raise ValueError(f"batch_size must be >= 1; got {batch_size}.")
+    if lr <= 0:
+        raise ValueError(f"lr must be > 0; got {lr}.")
+    if log_every < 1:
+        raise ValueError(f"log_every must be >= 1; got {log_every}.")
+
     if not _is_this_packages_encoder(encoder_type):
         raise ValueError(
             f"Cannot pretrain encoder_type {encoder_type!r}: it defines no "
@@ -309,13 +355,15 @@ def pretrain(
     module.train()
     report = PretrainReport(steps=steps)
     step = 0
+    window: List[float] = []
     while step < steps:
         for batch in _batches(train_rows, corpus, batch_size, generator):
             if step >= steps:
                 break
 
-            encoder({Columns.OBS: batch})
-            stats = encoder.take_jepa_stats()
+            # Objective only: the policy latent is not used here, so do not pay
+            # for its trunk pass (#12).
+            stats = encoder.forward_objective(batch)
             if stats is None:
                 raise RuntimeError(
                     "The encoder produced no JEPA stats in train mode. Its "
@@ -327,10 +375,21 @@ def pretrain(
             stats["aux_loss"].backward()
             optimiser.step()
             step += 1
+            window.append(float(stats["predict_loss"]))
 
             if step % log_every == 0 or step == steps:
-                evaluated = _evaluate(encoder, module, validation_rows, corpus, batch_size)
-                report.train_loss.append(float(stats["predict_loss"]))
+                evaluated = _evaluate(
+                    encoder,
+                    module,
+                    validation_rows,
+                    corpus,
+                    batch_size,
+                    mask_seed=seed + 1,
+                )
+                # The mean over the interval, so it is comparable with the
+                # validation loss, which is a mean over its batches (#12).
+                report.train_loss.append(float(np.mean(window)))
+                window.clear()
                 report.validation_loss.append(evaluated["loss"])
                 report.latent_std.append(evaluated["latent_std"])
                 logger.info(

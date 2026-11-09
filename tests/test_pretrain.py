@@ -25,8 +25,9 @@ from gym_continuousDoubleAuction.envs.continuousDoubleAuction_env import (
 )
 from cda_jepa import pretrain as pretrain_pkg
 from cda_jepa.encoder import JEPA_DEFAULTS
+from cda_jepa.pretrain.pretrain import _evaluate
 
-from conftest import JEPA
+from conftest import JEPA, build_module
 from gym_continuousDoubleAuction.train.model.encoders import (
     encoder_fingerprint,
     encoder_settings,
@@ -132,6 +133,127 @@ class TestTheLoop:
                     encoder_type=encoder_type,
                     steps=1,
                 )
+
+
+class TestBadArgumentsAreRefused:
+    """A CLI typo must raise a named ValueError, not a ZeroDivisionError (#12)."""
+
+    @pytest.mark.parametrize(
+        "bad, match",
+        [
+            ({"steps": 0}, "steps"),
+            ({"batch_size": 0}, "batch_size"),
+            ({"lr": 0.0}, "lr"),
+            ({"lr": -1e-3}, "lr"),
+            ({"log_every": 0}, "log_every"),
+        ],
+    )
+    def test_pretrain_refuses_them_before_building(self, spaces, corpus, bad, match):
+        base = {"steps": 1, "batch_size": 8, "lr": 1e-3, "log_every": 1}
+        with pytest.raises(ValueError, match=match):
+            pretrain_pkg.pretrain(
+                corpus,
+                *spaces,
+                encoder_type=JEPA,
+                **{**base, **bad},
+            )
+
+    def test_the_cli_rejects_log_every_zero(self):
+        """`--log-every 0` used to reach `step % log_every`."""
+        from cda_jepa.pretrain.__main__ import main
+
+        with pytest.raises(SystemExit) as error:
+            main(["--log-every", "0"])
+        assert error.value.code == 2
+
+
+class TestValidationUsesItsOwnMaskStream:
+    """Validation must not perturb the masks training would draw (#12)."""
+
+    def test_evaluating_does_not_advance_the_training_generator(self, spaces, corpus):
+        module = build_module(spaces, JEPA)
+        encoder = module.encoder.actor_encoder
+        module.train()
+        encoder._mask_generator = torch.Generator().manual_seed(3)
+        before = encoder._mask_generator.get_state().clone()
+
+        _evaluate(encoder, module, np.arange(32), corpus, 8)
+
+        assert torch.equal(before, encoder._mask_generator.get_state())
+
+    def test_validation_is_deterministic_with_dropout_on(self, spaces, corpus):
+        """Validation runs the objective, so it must be in train mode; dropout
+        is still off, and it draws the same masks each time (#12)."""
+        module = build_module(spaces, JEPA, spec={"dropout": 0.1})
+        encoder = module.encoder.actor_encoder
+        module.train()
+        rows = np.arange(32)
+
+        first = _evaluate(encoder, module, rows, corpus, 8)
+        second = _evaluate(encoder, module, rows, corpus, 8)
+
+        assert first == second
+
+
+class _FakeEncoder(torch.nn.Module):
+    """A JEPA encoder with scripted per-step prediction losses."""
+
+    def __init__(self, train_losses):
+        super().__init__()
+        self.trunk = torch.nn.Module()
+        self.trunk.weight = torch.nn.Parameter(torch.ones(1))
+        self.predictor = torch.nn.Module()
+        self.predictor.weight = torch.nn.Parameter(torch.ones(1))
+        self._train_losses = iter(train_losses)
+        self._mask_generator = None
+        self.register_buffer("_mask_state", torch.empty(0, dtype=torch.uint8))
+
+    def take_jepa_stats(self):
+        return None
+
+    def forward_objective(self, obs):
+        if torch.is_grad_enabled():
+            value = next(self._train_losses)
+            loss = value * (self.trunk.weight * 0 + self.predictor.weight * 0 + 1)
+            return {
+                "aux_loss": loss,
+                "predict_loss": torch.tensor(value),
+                "latent_std": torch.tensor(0.9),
+                "offdiag_cov": torch.tensor(0.0),
+            }
+        return {
+            "aux_loss": torch.tensor(0.5),
+            "predict_loss": torch.tensor(0.5),
+            "latent_std": torch.tensor(0.9),
+            "offdiag_cov": torch.tensor(0.0),
+        }
+
+
+class _FakeModule(torch.nn.Module):
+    def __init__(self, encoder):
+        super().__init__()
+        self.encoder = torch.nn.Module()
+        self.encoder.actor_encoder = encoder
+
+
+class TestTheLoggedTrainingLossIsAnIntervalMean:
+    def test_it_is_not_just_the_last_batch(self, spaces, corpus, monkeypatch):
+        """`train_loss` used to be one batch's loss beside a validation mean (#12)."""
+        module = _FakeModule(_FakeEncoder([1.0, 2.0, 3.0, 4.0]))
+        monkeypatch.setattr(features_module, "build_module", lambda *a, **k: module)
+
+        _module, report = pretrain_pkg.pretrain(
+            corpus,
+            *spaces,
+            encoder_type=JEPA,
+            encoder_spec=dict(JEPA_DEFAULTS),
+            steps=4,
+            batch_size=64,
+            log_every=2,
+        )
+
+        assert report.train_loss == pytest.approx([1.5, 3.5])
+        assert report.validation_loss == pytest.approx([0.5, 0.5])
 
 
 @pytest.fixture(scope="module")

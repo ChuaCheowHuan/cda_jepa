@@ -74,6 +74,19 @@ _SUB_ENCODERS = ("encoder", "actor_encoder", "critic_encoder")
 _TRAINING_ONLY = ("target_trunk", "predictor", "world_model")
 
 
+def _unwrapped(module):
+    """The module behind a wrapper such as `TorchDDPRLModule`.
+
+    RLlib wraps each module in DDP when `num_learners > 1`. The wrapper's
+    `nn.Module.__getattr__` only finds `.module`, so `getattr(wrapper, "encoder")`
+    is None and the coefficient lookup raised even though the forward pass -
+    which DDP routes to the inner module - worked (#6). `unwrapped()` is the
+    wrapper's own accessor; a plain module has no such method.
+    """
+    unwrapped = getattr(module, "unwrapped", None)
+    return unwrapped() if callable(unwrapped) else module
+
+
 def _jepa_sub_encoder(encoder):
     """The first sub-encoder carrying JEPA machinery, or None.
 
@@ -241,9 +254,9 @@ class CDAJEPALearner(CDAPPOTorchLearner):
                 JEPA_PREDICT_LOSS_KEY: fwd_out[JEPA_PREDICT_LOSS],
                 # The metric meant to matter. A collapsed JEPA drives its
                 # prediction loss to ZERO, which reads as success - the loss
-                # alone cannot tell a working encoder from a dead one. This is
-                # meant to fall to 0 when every observation maps to the same
-                # latent; today it does not (cda_jepa #4).
+                # alone cannot tell a working encoder from a dead one. This
+                # falls to 0 when every observation maps to the same latent
+                # (cda_jepa #4).
                 JEPA_LATENT_STD_KEY: fwd_out[JEPA_LATENT_STD],
                 # Dimensional collapse: variance held up while the dimensions
                 # become redundant, which `latent_std` alone would miss.
@@ -276,7 +289,8 @@ class CDAJEPALearner(CDAPPOTorchLearner):
         coefficient would be added unweighted, which is a silent change to what
         is being optimised.
         """
-        _name, sub = _jepa_sub_encoder(getattr(self.module[module_id], "encoder", None))
+        module = _unwrapped(self.module[module_id])
+        _name, sub = _jepa_sub_encoder(getattr(module, "encoder", None))
         value = getattr(getattr(sub, "config", None), name, None)
         if value is None:
             raise ValueError(

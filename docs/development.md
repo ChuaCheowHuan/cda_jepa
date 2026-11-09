@@ -29,6 +29,10 @@ python -m pytest -q
 ruff check . && ruff format --check .
 ```
 
+`scipy` is not installed by default: nothing imports LeJEPA yet (#19). Add the `lejepa` extra
+(`pip install -e ".[test,lejepa]"`) when you want `tests/test_packaging.py` to check the LeJEPA
+files; otherwise that one case skips.
+
 If `download.pytorch.org` is unreachable, `pip install torch` from PyPI also works; it pulls in the
 CUDA libraries and is several GB. The `jepa-dev-setup` skill (`.claude/skills/`) has the details.
 
@@ -69,12 +73,14 @@ A test belongs here when it fails if this package's code is wrong. Behaviour tha
 | `test_pretrain.py` | The pretrainer: the loop, collapse, the checkpoint, its guard, the CLI |
 | `test_wiring.py` | A real gym-CDA `Algorithm`: the loss terms reach the optimiser, the NEXT_OBS connector is conditional, other encoders are unaffected |
 | `test_moved_checks.py` | Checks from other gym-CDA test files: one-row batches give finite losses (gym-CDA #242), pretraining builds in the corpus's book mode (#187), the Learner calls gym-CDA's loss seam |
-| `test_packaging.py` | The installed forks equal the submodules; the entry points |
+| `test_packaging.py` | The installed forks equal the submodules; the entry points; the encoder imports with a shadowing `src/` |
 | `test_docs.py` | The settings table matches `JEPA_DEFAULTS`, and every relative link resolves (docs, `CLAUDE.md`, skills) |
+| `test_ci.py` | The workflow token is read-only, actions are commit-pinned, and Dependabot keeps the pins current |
 
 ## CI
 
 `.github/workflows/cda_jepa.yml` checks out the submodules, installs gym-CDA at `GYM_CDA_REF`
-(default `master`) and runs the tests. It does not yet run ruff
+(default `master`) and runs the tests. The job token is read-only, and each action is pinned to a
+commit SHA that Dependabot updates. It does not yet run ruff
 ([#18](https://github.com/ChuaCheowHuan/cda_jepa/issues/18)) or test the gym-CDA 2.2 floor
 ([#23](https://github.com/ChuaCheowHuan/cda_jepa/issues/23)).

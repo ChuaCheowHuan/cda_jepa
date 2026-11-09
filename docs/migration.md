@@ -49,9 +49,10 @@ The `jepa_*` names are unchanged ([metrics.md](metrics.md)).
 
 ## Training is the same
 
-Moving changed one thing in the encoder: tokens are gathered with I-JEPA's `apply_masks` instead of
-an inline `torch.gather`, which gives identical tensors. An equivalence test in 0.1.0 showed the two
-were the same: from the same state, on the same episodes, this package and gym-CDA's built-in `jepa`
+Moving kept the encoder's tensors the same: 0.1.0 gathered tokens with I-JEPA's `apply_masks`, which
+is a `torch.gather`, and an equivalence test showed this package and gym-CDA's built-in `jepa`
 produced identical weights, EMA target, optimiser state and `jepa_*` metrics, with the world model
-off and on and the trunk shared or not. It was removed after 0.1.0: it could run only against
-gym-CDA 2.2, and later gym-CDA versions have no `jepa` of their own to compare with.
+off and on and the trunk shared or not. That test was removed after 0.1.0: it could run only against
+gym-CDA 2.2, and later gym-CDA versions have no `jepa` of their own to compare with. The gather is
+now written inline again (#5), so the tensors are still identical and the encoder no longer imports
+the fork's top-level `src` package.

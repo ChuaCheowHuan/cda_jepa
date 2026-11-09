@@ -128,16 +128,18 @@ validation loss  : 0.29386 -> 0.14596
 latent std       : 0.71992 -> 0.66829
 ```
 
+That run predates the #4 metric fix. The corrected across-batch statistic reads around 0.2 on a
+healthy encoder and near 0 on a collapsed one, so its absolute values are not comparable with the
+example above; the shape of the curve is.
+
 **`latent_std`, not the loss.** A collapsed JEPA maps every observation to the same vector, which
 makes its prediction *perfect* — the loss goes to zero and reads as a spectacular success, with
-throughput unchanged. `latent_std` is meant to go to zero at the same moment and to separate the
-two, but today it does not: taken over batch x masked positions, it stays near 0.87 for a dead
-encoder too ([#4](https://github.com/ChuaCheowHuan/cda_jepa/issues/4)), so the gate below catches
-divergence reliably and collapse only once #4 is fixed. `PretrainReport.collapsed` checks for it and the CLI **exits non-zero**, rather
-than leaving a good-looking number in the log beside weights nobody should load. It is also true
-when the run diverged: a NaN or infinite loss or `latent_std`, or no reading at all (`diverged`).
-The CLI checks before it saves, so a collapsed or diverged run writes **nothing**, and a
-checkpoint already in `--out` is left as it was.
+throughput unchanged. `latent_std` is the per-dimension spread across the batch at each masked
+position, so it goes to zero at the same moment and separates the two (#4). `PretrainReport.collapsed`
+checks for it and the CLI **exits non-zero**, rather than leaving a good-looking number in the log
+beside weights nobody should load. It is also true when the run diverged: a NaN or infinite loss or
+`latent_std`, or no reading at all (`diverged`). The CLI checks before it saves, so a collapsed or
+diverged run writes **nothing**, and a checkpoint already in `--out` is left as it was.
 
 The validation curve is the second thing to read. It is split **by episode**, because consecutive
 observations share three of their four snapshots — a row-level split would put near-duplicates of a

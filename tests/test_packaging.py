@@ -12,6 +12,9 @@ Two claims:
 
 import importlib
 import os
+import subprocess
+import sys
+import tomllib
 from importlib.metadata import entry_points
 
 import pytest
@@ -44,6 +47,10 @@ def test_every_installed_fork_file_equals_the_submodule(package):
     source = FORKS[package]
     if not os.path.isdir(source) or not os.listdir(source):
         pytest.skip("submodules not checked out (git submodule update --init)")
+    if package == "lejepa":
+        # The LeJEPA code still ships, but its only dependency (scipy) is an
+        # optional extra now (#19); importing it without that extra skips here.
+        pytest.importorskip("lejepa", reason="install the lejepa extra")
 
     installed = dict(_installed_files(package))
     assert installed, f"nothing installed for {package}"
@@ -52,12 +59,42 @@ def test_every_installed_fork_file_equals_the_submodule(package):
             assert got.read() == want.read(), f"{package}/{relpath} differs from the submodule"
 
 
-def test_the_ijepa_function_the_encoder_uses_is_the_forks():
-    from src.masks.utils import apply_masks
+def test_the_encoder_imports_from_a_directory_that_shadows_src(tmp_path):
+    """A user's own top-level `src/` must not break `import cda_jepa.encoder` (#5).
 
-    from cda_jepa import encoder
+    I-JEPA is installed as a namespace package named `src`, and a regular
+    package anywhere earlier on `sys.path` wins. The encoder used to import
+    `src.masks.utils` at module level, so a normal `src/` layout made it fail
+    far from the cause. The gather is written here now, so the import must work
+    with a shadowing `src/__init__.py` present.
+    """
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "__init__.py").write_text("")
 
-    assert encoder.apply_masks is apply_masks
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join(
+        [ROOT, env["PYTHONPATH"]] if env.get("PYTHONPATH") else [ROOT]
+    )
+    output = tmp_path / "result.txt"
+    with open(output, "w") as handle:
+        completed = subprocess.run(
+            [sys.executable, "-c", "import cda_jepa.encoder"],
+            cwd=tmp_path,
+            env=env,
+            stdout=handle,
+            stderr=subprocess.STDOUT,
+        )
+
+    assert completed.returncode == 0, output.read_text()
+
+
+def test_lejepa_and_scipy_are_optional():
+    """The fork is unused, so a default install must not pull scipy in (#19)."""
+    with open(os.path.join(ROOT, "pyproject.toml"), "rb") as handle:
+        project = tomllib.load(handle)["project"]
+
+    assert "scipy" not in project["dependencies"]
+    assert project["optional-dependencies"]["lejepa"] == ["scipy"]
 
 
 def test_the_extension_entry_point_is_this_packages():

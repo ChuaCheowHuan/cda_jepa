@@ -30,6 +30,20 @@ def _cli(key):
     return PRETRAIN_DEFAULTS[key]
 
 
+def _at_least_one(text):
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be >= 1")
+    return value
+
+
+def _positive_float(text):
+    value = float(text)
+    if value <= 0:
+        raise argparse.ArgumentTypeError("must be > 0")
+    return value
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(
         description="Pretrain a JEPA encoder on observations alone. See docs/pretraining.md.",
@@ -46,21 +60,24 @@ def main(argv=None):
         default=_cli("encoder_type"),
         help=f"Available: {', '.join(PRETRAINABLE)}.",
     )
-    p.add_argument("--steps", type=int, default=_cli("steps"))
-    p.add_argument("--batch-size", type=int, default=_cli("batch_size"))
-    p.add_argument("--lr", type=float, default=_cli("lr"))
+    p.add_argument("--steps", type=_at_least_one, default=_cli("steps"))
+    p.add_argument("--batch-size", type=_at_least_one, default=_cli("batch_size"))
+    p.add_argument("--lr", type=_positive_float, default=_cli("lr"))
     p.add_argument("--seed", type=int, default=_cli("seed"))
-    p.add_argument("--log-every", type=int, default=_cli("log_every"))
+    p.add_argument("--log-every", type=_at_least_one, default=_cli("log_every"))
     p.add_argument(
         "--episodes",
-        type=int,
+        type=_at_least_one,
         default=_cli("num_episodes"),
         help="Random-agent rollout episodes, when --parquet is unset.",
     )
     p.add_argument(
-        "--env-steps", type=int, default=_cli("max_step"), help="Steps per rollout episode."
+        "--env-steps",
+        type=_at_least_one,
+        default=_cli("max_step"),
+        help="Steps per rollout episode.",
     )
-    p.add_argument("--agents", type=int, default=_cli("num_agents"))
+    p.add_argument("--agents", type=_at_least_one, default=_cli("num_agents"))
     p.add_argument(
         "--parquet",
         type=str,

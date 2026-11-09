@@ -33,10 +33,10 @@ a healthy encoder (issue #7).
 
 ## Read the result
 
-- **On main before #4 is fixed** all three read about 0.87 to 0.88: the statistic measures spread
-  across masked *positions*, which the predictor's position embeddings provide on their own.
-- **After a fix** (spread across the batch per position), `identical` and `blind` should read
-  near 0, and `--check` should pass. Add the same two cases as regression tests in
-  `tests/test_encoder.py`; the script is the quick check, the tests are the guard.
-- A fix that changes the statistic also changes the hinge, which reads it: rerun and report both
-  columns.
+- **`identical` and `blind` should read near 0** and `--check` should pass. The statistic is the
+  spread across the batch at each masked position, so only per-observation information can keep it
+  up. Before #4 it was spread across masked *positions*, which the predictor's position embeddings
+  provide on their own; all three cases then read about 0.87 to 0.88.
+- The same two cases are regression tests in `tests/test_encoder.py`; the script is the quick
+  check, the tests are the guard.
+- A change to the statistic also changes the hinge, which reads it: rerun and report both columns.

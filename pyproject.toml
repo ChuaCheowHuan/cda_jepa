@@ -13,11 +13,14 @@ license-files = ["LICENSE", "NOTICE", "third_party/ijepa/LICENSE", "third_party/
 # gym-CDA is not on PyPI: install it first (see README). 2.2 is the first with the
 # `gym_cda.encoders` entry point. ijepa and lejepa are git submodules shipped
 # unchanged (see [tool.setuptools]), so the dependencies their shipped modules
-# import are listed here: torch and numpy, and scipy, which lejepa imports
-# (univariate/moments.py) without declaring it.
-dependencies = ["gym_continuousDoubleAuction>=2.2,<3", "torch", "numpy", "scipy"]
+# import are listed here: torch and numpy. lejepa's only dependency, scipy, is
+# optional: nothing imports lejepa yet (SIGReg is planned), so a default install
+# must not pull scipy in. Install `cda-jepa[lejepa]` to make it importable.
+dependencies = ["gym_continuousDoubleAuction>=2.2,<3", "torch", "numpy"]
 
 [project.optional-dependencies]
+# The LeJEPA code ships as files; this extra supplies the dependency it imports.
+lejepa = ["scipy"]
 test = ["pytest", "ruff"]
 
 [project.entry-points."gym_cda.extensions"]

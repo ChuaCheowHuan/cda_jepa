@@ -18,7 +18,7 @@ from gym_continuousDoubleAuction.train.model.encoders.tokenize import (
 
 from cda_jepa import encoder as jepa_module
 from cda_jepa.encoder import MASK_AXES, sample_mask
-from cda_jepa.learner import JEPA_AUX_LOSS, JEPA_WORLD_LOSS
+from cda_jepa.learner import JEPA_AUX_LOSS, JEPA_WORLD_LOSS, CDAJEPALearner
 
 
 class TestTheEncoderContract:
@@ -258,6 +258,92 @@ class TestJEPA:
         # And the hinge pushes back, so the reported aux loss is NOT near zero
         # even though the prediction problem became trivial.
         assert float(stats["aux_loss"].detach()) > float(stats["predict_loss"])
+
+    def test_identical_observations_are_visible_in_latent_std(self, spaces):
+        """A constant input is the simplest collapse the metric must catch.
+
+        `latent_std` used to be taken across batch x masked positions, so the
+        predictor's position embeddings kept it near 0.9 even when every
+        observation mapped to the same vector (#4). Taken across the batch at
+        each masked position, repeated observations have no spread at all.
+        """
+        obs_space, _ = spaces
+        module = build_module(spaces, JEPA, spec={"ema_decay": 1.0})
+        encoder = module.encoder.actor_encoder
+        batch = sample_batch(obs_space, n=8, module=module)
+        batch[Columns.OBS] = batch[Columns.OBS][:1].repeat(8, 1)
+
+        module.train()
+        module.encoder(batch)
+        stats = encoder.take_jepa_stats()
+
+        assert float(stats["latent_std"]) < 0.1
+
+    def test_a_blind_trunk_is_visible_in_latent_std(self, spaces):
+        """A trunk that ignores its input is the realistic collapse.
+
+        Zeroing the *predictor* removes its position embeddings too, which is
+        why the old test passed while a trunk that still had positional
+        variation did not (#4). Here the online trunk's projection is zeroed
+        but the predictor is untouched; only spread across observations can
+        show the collapse.
+        """
+        obs_space, _ = spaces
+        module = build_module(spaces, JEPA, spec={"ema_decay": 1.0})
+        encoder = module.encoder.actor_encoder
+        with torch.no_grad():
+            encoder.trunk.project.weight.zero_()
+            encoder.trunk.project.bias.zero_()
+
+        module.train()
+        module.encoder(sample_batch(obs_space, n=8, module=module))
+        stats = encoder.take_jepa_stats()
+
+        assert float(stats["latent_std"]) < 0.1
+
+    def test_the_mask_stream_continues_from_a_checkpoint(self, spaces):
+        """A resumed run must draw the same next mask as an uninterrupted one.
+
+        `_mask_generator` lived outside the module state (#13), so a restored
+        encoder started its stream over instead of continuing it. The state
+        buffer is part of the encoder's `state_dict`, and `set_state` carries it.
+        """
+        obs_space, _ = spaces
+        source = build_module(spaces, JEPA)
+        source.train()
+        source.encoder(sample_batch(obs_space, n=8, module=source))
+        assert source.encoder.actor_encoder._mask_state.numel() > 0
+
+        target = build_module(spaces, JEPA)
+        target.set_state(source.get_state())
+
+        def next_mask(module):
+            encoder = module.encoder.actor_encoder
+            return sample_mask(
+                encoder._num_tokens,
+                encoder.layout,
+                encoder.tokenization,
+                encoder.mask_axis,
+                encoder.mask_ratio,
+                generator=encoder._mask_rng(),
+            ).tolist()
+
+        assert next_mask(source) == next_mask(target)
+
+    def test_the_objective_only_forward_skips_the_policy_pass(self, spaces, monkeypatch):
+        """Pretraining and validation need the objective, not the policy latent."""
+        obs_space, _ = spaces
+        module = build_module(spaces, JEPA)
+        encoder = module.encoder.actor_encoder
+        module.train()
+
+        def boom(*args, **kwargs):
+            raise AssertionError("the policy pass ran")
+
+        monkeypatch.setattr(encoder.pool, "forward", boom)
+        stats = encoder.forward_objective(sample_batch(obs_space, n=8, module=module)[Columns.OBS])
+
+        assert "aux_loss" in stats
 
     def test_the_variance_hinge_actually_carries_a_gradient(self, monkeypatch, spaces):
         """docs/29 S2-9, isolated so only the hinge can explain the result.
@@ -566,6 +652,11 @@ class TestJEPAReviewRegressions:
                 encoder(batch)
         assert torch.equal(before, next(encoder.target_trunk.parameters()))
 
+        # The target starts as a copy of the online trunk, so an EMA step can
+        # only be visible after the online trunk has moved.
+        with torch.no_grad():
+            for parameter in encoder.trunk.parameters():
+                parameter.add_(1.0)
         encoder(batch)
         assert not torch.equal(before, next(encoder.target_trunk.parameters()))
 
@@ -616,3 +707,69 @@ class TestJEPAReviewRegressions:
                 encoder_type=JEPA,
                 encoder_specs={JEPA: {"tokenization": "time"}},
             ).build()
+
+
+class TestMasksFollowTheirAxis:
+    """The mask is structural wherever the tokenisation has that axis (#9)."""
+
+    def test_level_masking_under_level_tokenisation_is_a_contiguous_band(self, layout_for_spaces):
+        """`level` tokenisation has `k_rows` level tokens plus a global one.
+
+        The old branch fell back to a random draw for every tokenisation but
+        `both`, so a `(tokenization x mask_axis)` ablation reported a random
+        mask under the name "level".
+        """
+        layout = layout_for_spaces
+        total = layout.k_rows + 1
+        masked = sample_mask(
+            total,
+            layout,
+            "level",
+            "level",
+            0.4,
+            torch.Generator().manual_seed(0),
+        ).tolist()
+
+        assert layout.k_rows not in masked, "the global token must stay visible"
+        assert 0 < len(masked) < layout.k_rows
+        assert masked == list(range(masked[0], masked[-1] + 1)), "the band is not contiguous"
+
+    def test_a_missing_axis_still_falls_back_to_a_random_mask(self, layout_for_spaces):
+        """`time` tokenisation has no level axis; asking for one is not an error."""
+        layout = layout_for_spaces
+        total = layout.n_hist
+        masked = sample_mask(
+            total,
+            layout,
+            "time",
+            "level",
+            0.4,
+            torch.Generator().manual_seed(0),
+        )
+        assert 0 < len(masked) < total
+
+
+class TestTheLearnerReadsThroughADDPWrapper:
+    """`num_learners > 1` wraps each module; `.encoder` lives on the inner one (#6)."""
+
+    def test_the_encoder_setting_is_found_on_the_unwrapped_module(self, spaces):
+        module = build_module(spaces, JEPA)
+
+        class Wrapper:
+            """The part of `TorchDDPRLModule` that matters here: no `.encoder`."""
+
+            def __init__(self, inner):
+                self.module = inner
+
+            def unwrapped(self):
+                return self.module
+
+        # `Learner.module` is a read-only property, so a stand-in subclass owns
+        # the mapping instead of assigning it on an instance.
+        Learner = type("Learner", (CDAJEPALearner,), {"module": {"p": Wrapper(module)}})
+        learner = Learner.__new__(Learner)
+
+        assert (
+            learner._encoder_setting("p", "aux_loss_coeff")
+            == jepa_module.JEPA_DEFAULTS["aux_loss_coeff"]
+        )

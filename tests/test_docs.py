@@ -21,14 +21,14 @@ DOCS = sorted(
 
 
 def test_the_settings_table_matches_the_defaults():
-    text = (ROOT / "docs" / "settings.md").read_text()
+    text = (ROOT / "docs" / "settings.md").read_text(encoding="utf-8")
     rows = dict(re.findall(r"^\| `([a-z_]+)` \| `([^`]+)` \|", text, flags=re.M))
     assert rows == {k: json.dumps(v) for k, v in JEPA_DEFAULTS.items()}
 
 
 @pytest.mark.parametrize("doc", DOCS, ids=lambda p: str(p.relative_to(ROOT)))
 def test_every_relative_link_resolves(doc):
-    text = re.sub(r"```.*?```", "", doc.read_text(), flags=re.S)
+    text = re.sub(r"```.*?```", "", doc.read_text(encoding="utf-8"), flags=re.S)
     broken = []
     for target in re.findall(r"\]\(([^)\s]+)\)", text):
         if re.match(r"[a-z]+:", target) or target.startswith("#"):

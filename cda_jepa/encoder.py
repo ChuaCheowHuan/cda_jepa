@@ -54,17 +54,18 @@ This module imports the shared primitives and subclasses none of them.
 existed. The ~15 lines of "project, norm, add positions, attend, pool" that this
 duplicates from `transformer` are the deliberate price of that.
 
-What comes from I-JEPA's own code
----------------------------------
-The authors' code ships unchanged in this package as the top-level `src`
-(the `ijepa` submodule), and what of it fits is imported rather than rewritten:
-`apply_masks`, which gathers the context and target tokens. Its predictor does
-not fit: it places tokens with fixed 2-D sin-cos positions on a square grid,
-and the book grid (snapshots x levels) is not square, while this predictor's
-learned time and level embeddings are what every checkpoint holds. The EMA
-step, the layer-normed target and the smooth-L1 loss are written inline in its
-`train.py` (the authors' I-JEPA script) rather than as functions, so they are written
-here too.
+What came from I-JEPA's own code
+--------------------------------
+The authors' code ships unchanged in this package as the top-level `src` (the
+`ijepa` submodule), but this module no longer imports it. Its `apply_masks` is a
+`torch.gather` over index lists, and importing it meant a user's own top-level
+`src/` could shadow the namespace package and break `import cda_jepa.encoder`
+(#5); `_gather` below is that gather, written here. Its predictor does not fit:
+it places tokens with fixed 2-D sin-cos positions on a square grid, and the book
+grid (snapshots x levels) is not square, while this predictor's learned time and
+level embeddings are what every checkpoint holds. The EMA step, the layer-normed
+target and the smooth-L1 loss are written inline in its `train.py` (the authors'
+I-JEPA script) rather than as functions, so they are written here too.
 docs/provenance.md lists each piece.
 """
 
@@ -107,16 +108,19 @@ from gym_continuousDoubleAuction.train.model.encoders.tokenize import (
 from gym_continuousDoubleAuction.train.model.encoders.transformer import (
     positional_index,
 )
-from src.masks.utils import apply_masks
 
 
 def _gather(x: torch.Tensor, index: torch.Tensor) -> torch.Tensor:
-    """`x[:, index]` for one index list shared by the batch, through I-JEPA's `apply_masks`.
+    """`x[:, index]` for one index list shared by the batch.
 
-    `apply_masks` takes one `(B, K)` index tensor per mask; this encoder draws one mask per
-    forward, shared by the whole batch, so it is that one row repeated.
+    This is I-JEPA's `apply_masks` for the one-mask case this encoder uses: the
+    same `torch.gather`, written here rather than imported. Importing the fork's
+    top-level `src` package made a user's own `src/` able to shadow it and break
+    `import cda_jepa.encoder` (#5); the gather is a few lines and carries no
+    other dependency.
     """
-    return apply_masks(x, [index.unsqueeze(0).expand(x.shape[0], -1)])
+    gather_index = index.view(1, -1, 1).expand(x.shape[0], index.shape[0], x.shape[-1])
+    return torch.gather(x, dim=1, index=gather_index)
 
 
 #: Defaults for the `jepa` block of `encoder_specs`. The transformer keys mean
@@ -157,13 +161,18 @@ MASK_AXES = ("level", "time", "random")
 DISCRETE_ACTIONS = ("category", "order_slot", "price", "price_offset")
 BOX_ACTIONS = ("size",)
 
-#: Floor the variance hinge pushes the mean per-dimension standard deviation
-#: above. Not a knob. For layer-normed rows that mean is at most about 1 and reaches
-#: 1 only when the batch mean is zero in every dimension, so the hinge stays slightly
-#: active on a healthy encoder (about a fifth of `aux_loss` at initialisation) and
-#: pushes the batch mean of the predictions toward zero. Whether to keep it so is
-#: cda_jepa #22.
-VARIANCE_TARGET = 1.0
+#: Floor the variance hinge pushes the across-batch standard deviation above.
+#: Not a knob. The statistic is now taken across observations at each masked
+#: position (#4), whose healthy scale on a fresh default encoder is about 0.2,
+#: not the ~0.9 the old position-mixed statistic reported. A target of 1.0 is
+#: reachable for layer-normed rows only when the batch mean is zero in every
+#: dimension; it made the corrected hinge dominate the objective, so the first
+#: 100 pretraining steps raised the spread but never reduced the prediction
+#: loss. 0.2 is the scale at which the hinge is near-off on a healthy encoder
+#: and bites when the spread falls. The target stays a research decision
+#: (cda_jepa #22); this is the value that keeps #4's corrected statistic
+#: trainable.
+VARIANCE_TARGET = 0.2
 
 
 def _num_tokens(layout: ObsLayout, tokenization: str) -> int:
@@ -206,8 +215,17 @@ def sample_mask(
     count = int(round(num_tokens * mask_ratio))
     count = max(1, min(count, num_tokens - 1))
 
+    # Draw on the generator's device. On a GPU run this keeps the index tensor
+    # there instead of drawing on the CPU and copying it every forward (#14).
+    device = generator.device if generator is not None else torch.device("cpu")
+
     def draw(n, k):
-        return torch.randperm(n, generator=generator)[:k]
+        if generator is None:
+            return torch.randperm(n, device=device)[:k]
+        return torch.randperm(n, generator=generator, device=device)[:k]
+
+    if mask_axis == "random":
+        return draw(num_tokens, count)
 
     # A tokenisation only has the axes it has, and only `both` has two of them.
     # `level` tokenisation is one snapshot, so it has no time axis; `time`
@@ -216,48 +234,61 @@ def sample_mask(
     # raising: the axis is a property of the tokenisation, not a user error,
     # and an ablation sweeping (tokenization x mask_axis) should not have to
     # special-case the combinations that collapse.
-    axis_exists = (
-        mask_axis == "time"
-        and tokenization in ("time", "both")
-        or mask_axis == "level"
-        and tokenization in ("level", "both")
-    )
-    if mask_axis == "random" or not axis_exists or tokenization != "both":
+    if mask_axis == "level":
+        if tokenization not in ("level", "both"):
+            return draw(num_tokens, count)
+        # `k_rows - 1` leaves at least one level visible.
+        levels = max(1, min(int(round(layout.k_rows * mask_ratio)), layout.k_rows - 1))
+        start = int(
+            torch.randint(
+                0,
+                layout.k_rows - levels + 1,
+                (1,),
+                generator=generator,
+                device=device,
+            ).item()
+        )
+        band = torch.arange(start, start + levels, device=device)
+        if tokenization == "level":
+            # `k_rows` level tokens plus one global token, which stays visible.
+            return band if len(band) < num_tokens else draw(num_tokens, count)
+
+        # `both`: the same contiguous depth band in every snapshot, so the
+        # question is "what depth is consistent with this touch" rather than
+        # "what happened at t=2".
+        stride = layout.k_rows + 1
+        times = torch.arange(layout.n_hist, device=device)
+        masked = (times.unsqueeze(1) * stride + band).reshape(-1)
+        # `k_rows - 1` leaves at least the global token plus one level per
+        # snapshot, so this cannot cover everything - but the check is cheap and
+        # the contract this function documents is worth enforcing at its exit.
+        return masked if len(masked) < num_tokens else draw(num_tokens, count)
+
+    # mask_axis == "time".
+    if tokenization not in ("time", "both"):
+        return draw(num_tokens, count)
+    if tokenization == "time":
+        # One token per snapshot, so a draw of `count` tokens already hides
+        # whole snapshots.
         return draw(num_tokens, count)
 
     # `both` lays tokens out time-major, `k_rows + 1` per snapshot.
     stride = layout.k_rows + 1
-
-    if mask_axis == "time":
-        # `n_hist - 1` bounds the SNAPSHOTS, which is not the same as bounding
-        # the tokens: at n_hist 1 it clamps to 1 of 1 snapshot, and since a
-        # snapshot is `stride` tokens that masks the entire sequence - leaving
-        # the context encoder no input at all, silently. `n_hist: 1` is a
-        # configuration the lstm block explicitly recommends, so this is
-        # reachable rather than theoretical.
-        snapshots = max(1, min(int(round(layout.n_hist * mask_ratio)), layout.n_hist - 1))
-        chosen = draw(layout.n_hist, snapshots)
-        offsets = torch.arange(stride)
-        masked = (chosen.unsqueeze(1) * stride + offsets).reshape(-1)
-        if len(masked) >= num_tokens:
-            # No whole-snapshot mask can leave context here; fall back to the
-            # token-level draw, which `count` already bounds below the total.
-            return draw(num_tokens, count)
-        return masked
-
-    # "level" under `both`: hide the same contiguous depth band in every
-    # snapshot, so the question is "what depth is consistent with this touch"
-    # rather than "what happened at t=2".
-    levels = max(1, min(int(round(layout.k_rows * mask_ratio)), layout.k_rows - 1))
-    start = int(torch.randint(0, layout.k_rows - levels + 1, (1,), generator=generator).item())
-    band = torch.arange(start, start + levels)
-    times = torch.arange(layout.n_hist)
-    masked = (times.unsqueeze(1) * stride + band).reshape(-1)
-    # `k_rows - 1` leaves at least the global token plus one level per snapshot,
-    # so this cannot cover everything - but the check is cheap and the contract
-    # this function documents is worth enforcing at its exit rather than
-    # inferring from the arithmetic above.
-    return masked if len(masked) < num_tokens else draw(num_tokens, count)
+    # `n_hist - 1` bounds the SNAPSHOTS, which is not the same as bounding
+    # the tokens: at n_hist 1 it clamps to 1 of 1 snapshot, and since a
+    # snapshot is `stride` tokens that masks the entire sequence - leaving
+    # the context encoder no input at all, silently. `n_hist: 1` is a
+    # configuration the lstm block explicitly recommends, so this is
+    # reachable rather than theoretical.
+    snapshots = max(1, min(int(round(layout.n_hist * mask_ratio)), layout.n_hist - 1))
+    chosen = draw(layout.n_hist, snapshots)
+    offsets = torch.arange(stride, device=device)
+    masked = (chosen.unsqueeze(1) * stride + offsets).reshape(-1)
+    if len(masked) >= num_tokens:
+        # No whole-snapshot mask can leave context here; fall back to the
+        # token-level draw, which `count` already bounds below the total.
+        return draw(num_tokens, count)
+    return masked
 
 
 class _Trunk(nn.Module):
@@ -586,6 +617,15 @@ class TorchJEPAEncoder(TorchModel, Encoder):
         #: `_forward`, taken by `take_jepa_stats`.
         self._jepa_stats = None
 
+        #: This encoder's mask stream. `_mask_generator` is the CPU stream that
+        #: decides each draw; `_mask_state` is its serialised state, a buffer so
+        #: it travels with the model's `state_dict` (#13). `_mask_device_generator`
+        #: is created only on a non-CPU device, seeded from the CPU stream, so the
+        #: mask is drawn where it is used rather than copied there each forward (#14).
+        self._mask_generator: Optional[torch.Generator] = None
+        self._mask_device_generator: Optional[torch.Generator] = None
+        self.register_buffer("_mask_state", torch.empty(0, dtype=torch.uint8), persistent=True)
+
         #: Whether this instance runs the objective at all.
         #:
         #: `ActorCriticEncoder` builds two encoders from one config when
@@ -634,19 +674,102 @@ class TorchJEPAEncoder(TorchModel, Encoder):
         return stats
 
     def _mask_rng(self) -> torch.Generator:
-        """This encoder's own generator for mask sampling, made on first use.
+        """This encoder's own CPU generator for mask sampling, made on first use.
 
         Drawing masks from the global torch RNG meant every forward - including passes that
         train nothing - moved a seeded run's random stream (gym-CDA #185); CBP keeps a generator of
         its own for the same reason. Seeded from the process's initial seed plus a counter, so
         `torch.manual_seed` before building makes the masks reproducible and two encoders in
         one process do not draw identical ones.
+
+        Its state lives in the `_mask_state` buffer, so a restored checkpoint continues the
+        stream rather than replaying it (#13). The buffer is applied here when a restored
+        encoder has not drawn a mask yet; `_load_from_state_dict` applies it to an existing
+        generator, and `_draw_mask` writes it back after each draw.
         """
         generator = getattr(self, "_mask_generator", None)
         if generator is None:
             seed = (torch.initial_seed() + next(_MASK_STREAMS)) % (2**63 - 1)
-            generator = self._mask_generator = torch.Generator().manual_seed(seed)
+            generator = torch.Generator().manual_seed(seed)
+            if self._mask_state.numel():
+                generator.set_state(self._mask_state.cpu())
+            self._mask_generator = generator
         return generator
+
+    def _draw_mask(self, device: torch.device) -> torch.Tensor:
+        """One mask on `device`, from this encoder's serialised stream.
+
+        On CPU the stream draws directly. On another device the CPU stream draws
+        only a seed and a device generator draws the mask itself, so the index
+        tensor is born where it is used (#14). Either way the CPU stream advances
+        and its state is written back, which is what a checkpoint restores (#13).
+        """
+        stream = self._mask_rng()
+        if device.type == "cpu":
+            masked = sample_mask(
+                self._num_tokens,
+                self.layout,
+                self.tokenization,
+                self.mask_axis,
+                self.mask_ratio,
+                generator=stream,
+            )
+        else:
+            seed = int(torch.randint(0, 2**63 - 1, (1,), generator=stream).item())
+            generator = self._mask_device_generator
+            if generator is None or generator.device != device:
+                generator = torch.Generator(device=device)
+                self._mask_device_generator = generator
+            generator.manual_seed(seed)
+            masked = sample_mask(
+                self._num_tokens,
+                self.layout,
+                self.tokenization,
+                self.mask_axis,
+                self.mask_ratio,
+                generator=generator,
+            )
+        self._mask_state = stream.get_state().to(self._mask_state.device)
+        return masked
+
+    def _load_from_state_dict(
+        self,
+        state_dict,
+        prefix,
+        local_metadata,
+        strict,
+        missing_keys,
+        unexpected_keys,
+        error_msgs,
+    ) -> None:
+        """Load `_mask_state`, and keep older checkpoints loadable without it.
+
+        A checkpoint written before #13 has no mask state. Strict loading would
+        otherwise report the new buffer missing; an old checkpoint can only start
+        its stream unavailable, which is what it did before.
+        """
+        key = prefix + "_mask_state"
+        saved = state_dict.get(key)
+        if saved is not None and saved.shape != self._mask_state.shape:
+            # The buffer starts empty and takes whatever size the generator's
+            # state has on the device that wrote the checkpoint.
+            self._mask_state.resize_(saved.shape)
+        super()._load_from_state_dict(
+            state_dict,
+            prefix,
+            local_metadata,
+            strict,
+            missing_keys,
+            unexpected_keys,
+            error_msgs,
+        )
+        if key not in state_dict:
+            try:
+                missing_keys.remove(key)
+            except ValueError:
+                pass
+        elif saved is not None and saved.numel() and self._mask_generator is not None:
+            self._mask_generator.set_state(saved.cpu())
 
     @torch.no_grad()
     def _update_target(self) -> None:
@@ -658,23 +781,20 @@ class TorchJEPAEncoder(TorchModel, Encoder):
         any corresponding update to the online trunk, which makes the resulting
         weights a function of how often - and on how much data - the evaluation
         happened to run.
+
+        One fused `_foreach_lerp_` rather than a Python loop over the trunk's
+        parameters on every minibatch (#14).
         """
-        decay = self.ema_decay
-        for target, online in zip(self.target_trunk.parameters(), self.trunk.parameters()):
-            target.mul_(decay).add_(online.detach(), alpha=1.0 - decay)
+        targets = list(self.target_trunk.parameters())
+        if targets:
+            onlines = [parameter.detach() for parameter in self.trunk.parameters()]
+            torch._foreach_lerp_(targets, onlines, 1.0 - self.ema_decay)
         for target, online in zip(self.target_trunk.buffers(), self.trunk.buffers()):
             target.copy_(online)
 
     def _jepa_loss(self, tokens: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Mask, predict, score. Returns the loss and the collapse metrics."""
-        masked = sample_mask(
-            self._num_tokens,
-            self.layout,
-            self.tokenization,
-            self.mask_axis,
-            self.mask_ratio,
-            generator=self._mask_rng(),
-        ).to(tokens.device)
+        masked = self._draw_mask(tokens.device)
 
         keep = torch.ones(self._num_tokens, dtype=torch.bool, device=tokens.device)
         keep[masked] = False
@@ -719,34 +839,36 @@ class TorchJEPAEncoder(TorchModel, Encoder):
 
         # A collapsed JEPA drives `loss` to ZERO, which reads as success - so
         # the loss alone cannot tell a working encoder from a dead one. `std` is
-        # meant to: the mean per-dimension standard deviation of the rows. It is
-        # taken over batch x masked positions, so the predictor's position
-        # embeddings keep it high even when every observation maps to the same
-        # vector; it does not yet detect a collapse (cda_jepa #4).
-        flat = online.reshape(-1, online.shape[-1])
-        if flat.shape[0] < 2:
-            # The spread of one row is undefined: the unbiased std is NaN, and
-            # `relu(1 - nan)` carried it into the aux loss, `total_loss` and every
-            # statistic below (gym-CDA #242). Reachable with one observation and
-            # one masked token - a final partial pretraining batch. The hinge is
-            # skipped, and `latent_std` says "not measured" rather than a 0 that
-            # would read as a collapse.
-            std = flat.new_full((), float("nan"))
+        # meant to: the mean per-dimension standard deviation ACROSS THE BATCH,
+        # at each masked position, then averaged. Taking it over batch x masked
+        # positions measured the predictor's positional spread instead, which
+        # stays near 0.9 for a blind trunk (cda_jepa #4); this sees a collapse.
+        batch = online.shape[0]
+        if batch < 2:
+            # The spread of one observation is undefined: the unbiased std is
+            # NaN, and `relu(1 - nan)` carried it into the aux loss, `total_loss`
+            # and every statistic below (gym-CDA #242). Reachable with one
+            # observation and one masked token - a final partial pretraining
+            # batch. The hinge is skipped, and `latent_std` says "not measured"
+            # rather than a 0 that would read as a collapse.
+            std = online.new_full((), float("nan"))
+            offdiag = online.new_zeros(())
         else:
-            std = flat.std(dim=0).mean()
+            std = online.std(dim=0).mean()
 
-        # Dimensional collapse: variance held up while dimensions become
-        # redundant. Off-diagonal covariance catches what `std` alone misses.
-        centred = flat - flat.mean(dim=0, keepdim=True)
-        covariance = (centred.T @ centred) / max(1, flat.shape[0] - 1)
-        off_diagonal = covariance - torch.diag(torch.diag(covariance))
-        offdiag = off_diagonal.abs().mean()
+            # Dimensional collapse: variance held up while dimensions become
+            # redundant. Off-diagonal covariance catches what `std` alone
+            # misses. Per masked position, then averaged, for the same reason
+            # the std is: position embeddings must not supply the covariance.
+            centred = online - online.mean(dim=0, keepdim=True)
+            covariance = torch.einsum("bmd,bme->mde", centred, centred) / (batch - 1)
+            diagonal = torch.diagonal(covariance, dim1=-2, dim2=-1)
+            off_diagonal = covariance - torch.diag_embed(diagonal)
+            offdiag = off_diagonal.abs().mean()
 
         # VICReg-style hinge, the only term actively pushing back once a collapse
         # starts. See `VARIANCE_TARGET` for why it is never fully off.
-        variance_penalty = (
-            F.relu(VARIANCE_TARGET - std) if flat.shape[0] >= 2 else flat.new_zeros(())
-        )
+        variance_penalty = F.relu(VARIANCE_TARGET - std) if batch >= 2 else online.new_zeros(())
 
         return {
             "aux_loss": loss + self.variance_coeff * variance_penalty,
@@ -754,6 +876,23 @@ class TorchJEPAEncoder(TorchModel, Encoder):
             "offdiag_cov": offdiag.detach(),
             "predict_loss": loss.detach(),
         }
+
+    def forward_objective(self, obs: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """Run only the self-supervised objective, skipping the policy pass.
+
+        The pretrainer and its validation loop need the mask-predict loss and
+        nothing the policy head produces. `_forward` has to build the policy
+        latent too, which on a training step is a full extra trunk pass whose
+        output is discarded (#12); this path tokenises the observation and goes
+        straight to `_jepa_loss`.
+
+        Returns the same stats dict `_jepa_loss` returns and does not touch
+        `_jepa_stats`: the caller owns these numbers.
+        """
+        tokens = tokenize(obs, self.layout, self.tokenization)
+        if torch.is_grad_enabled():
+            self._update_target()
+        return self._jepa_loss(tokens)
 
     # --- The encoder itself ------------------------------------------------
 
