@@ -9,9 +9,10 @@ until a run asks for it:
   `encoder_type: "jepa"` and configures under `encoder_specs.jepa`.
 
 The encoder, its RLModule and its Learner are `encoder.py` and `learner.py`; the
-offline pretrainer is `python -m cda_jepa.pretrain`. I-JEPA's and LeJEPA's own
-code ship unchanged as the top-level packages `src` and `lejepa`, from pinned
-submodules of the forks (docs/provenance.md). See docs/jepa.md for the method.
+offline pretrainer is `python -m cda_jepa.pretrain`. I-JEPA's code ships unchanged
+as the top-level package `src`, from a pinned submodule of the fork. LeJEPA is
+optional: `cda-jepa[lejepa]` installs its pinned fork, and the default wheel does
+not carry it (docs/provenance.md). See docs/jepa.md for the method.
 """
 
 from gym_continuousDoubleAuction.train.extensions import Extension

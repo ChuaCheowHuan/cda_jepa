@@ -11,7 +11,7 @@ cda_jepa/config.py           the pretrainer's CLI defaults
 tests/                       pytest; `python -m pytest -q`
 CLAUDE.md, .claude/skills/   rules and skills for coding agents working here
 third_party/ijepa            I-JEPA, a git submodule, installed unchanged as `src`
-third_party/lejepa           LeJEPA, a git submodule, installed unchanged as `lejepa`
+third_party/lejepa           LeJEPA, a git submodule; installed only by the `lejepa` extra
 .github/workflows/cda_jepa.yml  CI
 ```
 
@@ -29,9 +29,10 @@ python -m pytest -q
 ruff check . && ruff format --check .
 ```
 
-`scipy` is not installed by default: nothing imports LeJEPA yet (#19). Add the `lejepa` extra
+LeJEPA is not installed by default: nothing imports it yet (#19). Add the `lejepa` extra
 (`pip install -e ".[test,lejepa]"`) when you want `tests/test_packaging.py` to check the LeJEPA
-files; otherwise that one case skips.
+files; otherwise that one case skips. The extra installs the pinned fork from GitHub, so it needs
+network access.
 
 If `download.pytorch.org` is unreachable, `pip install torch` from PyPI also works; it pulls in the
 CUDA libraries and is several GB. The `jepa-dev-setup` skill (`.claude/skills/`) has the details.
@@ -70,7 +71,7 @@ A test belongs here when it fails if this package's code is wrong. Behaviour tha
 | `test_encoder.py` | The encoder contract every gym-CDA encoder meets; masks, EMA, the collapse metrics and the variance hinge; the world model; inference-only modules |
 | `test_jepa_value_pass.py` | The value pass runs no objective and takes no EMA step; masks have their own generator |
 | `test_world_model_actions.py` | The world model embeds every action head |
-| `test_pretrain.py` | The pretrainer: the loop, collapse, the checkpoint, its guard, the CLI |
+| `test_pretrain.py` | The pretrainer: the loop, collapse, JEPA-specific checkpoint round-trip and spec mismatch, the CLI. The shared checkpoint format and fingerprint are gym-CDA's, tested there in `test_pretrained_format.py` (#28) |
 | `test_wiring.py` | A real gym-CDA `Algorithm`: the loss terms reach the optimiser, the NEXT_OBS connector is conditional, other encoders are unaffected |
 | `test_moved_checks.py` | Checks from other gym-CDA test files: one-row batches give finite losses (gym-CDA #242), pretraining builds in the corpus's book mode (#187), the Learner calls gym-CDA's loss seam |
 | `test_packaging.py` | The installed forks equal the submodules; the entry points; the encoder imports with a shadowing `src/` |

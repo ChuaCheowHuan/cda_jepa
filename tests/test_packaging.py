@@ -1,11 +1,14 @@
 """What this package installs, and how gym-CDA finds it.
 
-Two claims:
+Three claims:
 
-  1. **The forks ship unchanged.** `src` (I-JEPA) and `lejepa` are installed straight
-     from the pinned submodules by `package-dir`, with no copy in this repository to
-     drift. Every installed file must equal its submodule file byte for byte.
-  2. **gym-CDA finds the encoder through entry points.** It imports nothing from this
+  1. **The installed forks ship unchanged.** `src` (I-JEPA) is installed straight
+     from the pinned submodule by `package-dir`, with no copy in this repository to
+     drift. `lejepa` is optional, and when installed from its pinned fork every
+     installed file must equal its submodule file byte for byte.
+  2. **LeJEPA is opt-in.** It is not in the default wheel; `cda-jepa[lejepa]`
+     installs the pinned fork and the scipy it imports (#19).
+  3. **gym-CDA finds the encoder through entry points.** It imports nothing from this
      package by name: the `gym_cda.extensions` and `gym_cda.encoders` entries are the
      whole contract.
 """
@@ -89,12 +92,19 @@ def test_the_encoder_imports_from_a_directory_that_shadows_src(tmp_path):
 
 
 def test_lejepa_and_scipy_are_optional():
-    """The fork is unused, so a default install must not pull scipy in (#19)."""
+    """The fork is unused, so a default install must not pull either in (#19)."""
     with open(os.path.join(ROOT, "pyproject.toml"), "rb") as handle:
-        project = tomllib.load(handle)["project"]
+        document = tomllib.load(handle)
 
+    project = document["project"]
     assert "scipy" not in project["dependencies"]
-    assert project["optional-dependencies"]["lejepa"] == ["scipy"]
+    assert "lejepa" not in document["tool"]["setuptools"]["packages"]
+    extra = project["optional-dependencies"]["lejepa"]
+    assert "scipy" in extra
+    assert any(
+        dependency.startswith("lejepa @ git+https://github.com/ChuaCheowHuan/lejepa@8f1a7bc")
+        for dependency in extra
+    )
 
 
 def test_the_extension_entry_point_is_this_packages():

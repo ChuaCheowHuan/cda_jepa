@@ -8,8 +8,6 @@ EMA step per module per iteration than optimiser steps (8 against 6 over one mea
 iteration), and a draw from the global torch RNG that shifted a seeded run's random stream.
 """
 
-import itertools
-
 import pytest
 import torch
 
@@ -113,11 +111,10 @@ class TestMaskSamplingHasItsOwnGenerator:
         }
         assert len(draws) > 1, "a generator that never advances would mask the same tokens forever"
 
-    def test_a_fresh_process_with_the_same_seed_draws_the_same_masks(self, spaces, monkeypatch):
-        """Modeled by resetting the per-process counter: same seed, same build order."""
+    def test_the_same_seed_draws_the_same_masks_regardless_of_build_order(self, spaces):
+        """The stream is seeded from the encoder's settings, not a process counter (#13)."""
 
         def first_mask():
-            monkeypatch.setattr(jepa_module, "_MASK_STREAMS", itertools.count(1))
             torch.manual_seed(5)
             _, encoder = _shared_module(spaces)
             return jepa_module.sample_mask(
@@ -131,7 +128,10 @@ class TestMaskSamplingHasItsOwnGenerator:
 
         assert first_mask() == first_mask()
 
-    def test_two_encoders_in_one_process_do_not_share_a_mask_stream(self, spaces):
+    def test_two_encoders_with_the_same_settings_share_the_initial_stream(self, spaces):
+        """Only the actor runs the objective, so identical settings may share masks;
+        what matters is that the stream does not depend on how many were built first."""
+        torch.manual_seed(5)
         _, first = _shared_module(spaces)
         _, second = _shared_module(spaces)
-        assert first._mask_rng().initial_seed() != second._mask_rng().initial_seed()
+        assert first._mask_rng().initial_seed() == second._mask_rng().initial_seed()

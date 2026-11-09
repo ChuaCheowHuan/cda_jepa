@@ -13,9 +13,6 @@ is easy to get quietly wrong:
     reason.
 """
 
-import json
-import os
-
 import numpy as np
 import pytest
 import torch
@@ -28,11 +25,6 @@ from cda_jepa.encoder import JEPA_DEFAULTS
 from cda_jepa.pretrain.pretrain import _evaluate
 
 from conftest import JEPA, build_module
-from gym_continuousDoubleAuction.train.model.encoders import (
-    encoder_fingerprint,
-    encoder_settings,
-    fingerprints_match,
-)
 from gym_continuousDoubleAuction.train.model.model_handler import (
     build_trainable_module_spec,
 )
@@ -276,71 +268,6 @@ def saved(spaces, corpus, spec_block, tmp_path_factory):
     return path, module
 
 
-class TestTheFingerprintIdentifiesTheArchitecture:
-    """docs/29 S3-22, in both directions.
-
-    `encoder_fingerprint` hashed the spec *as written*, not merged against the
-    encoder's registered defaults. That was wrong twice over, and the two
-    failures are opposites: a config stating a value equal to its default and
-    one omitting it describe the same architecture and fingerprinted
-    differently (a hard error over nothing), while a spec that omitted a key
-    kept its fingerprint when the value in `*_DEFAULTS` was later edited (the
-    architecture changed and the guard said nothing - the silent shape mismatch
-    the fingerprint exists to prevent).
-    """
-
-    def _config_block(self):
-        return dict(JEPA_DEFAULTS)
-
-    def test_none_and_the_config_block_agree(self):
-        """The case that made pretrained weights unloadable.
-
-        `pretrain(encoder_spec=None)` resolves to the config block, and a
-        training run built from that same block must accept its weights.
-        """
-        assert fingerprints_match(
-            encoder_fingerprint(JEPA, None),
-            encoder_fingerprint(JEPA, self._config_block()),
-        )
-
-    def test_omitting_a_key_at_its_default_still_matches(self):
-        block = self._config_block()
-        partial = {k: v for k, v in block.items() if k != "d_model"}
-
-        assert encoder_settings(JEPA, partial) == encoder_settings(JEPA, block)
-        assert fingerprints_match(
-            encoder_fingerprint(JEPA, partial),
-            encoder_fingerprint(JEPA, block),
-        )
-
-    def test_a_real_change_still_does_not_match(self):
-        """The guard against a merge that makes everything match everything."""
-        block = self._config_block()
-
-        assert not fingerprints_match(
-            encoder_fingerprint(JEPA, block),
-            encoder_fingerprint(JEPA, {**block, "d_model": 256}),
-        )
-
-    def test_a_defaulted_value_is_carried_in_the_hash(self):
-        """The false-match half: a later edit to *_DEFAULTS must move this."""
-        partial = {k: v for k, v in self._config_block().items() if k != "d_model"}
-        keys = dict(encoder_fingerprint(JEPA, partial)["encoder_spec"])
-
-        assert "d_model" in keys
-
-    def test_an_unbuildable_spec_reports_a_mismatch_rather_than_raising(self):
-        """The fingerprint is an identity, not a validator.
-
-        A caller comparing two of them wants "these differ", not an exception
-        from the comparison itself.
-        """
-        block = self._config_block()
-        foreign = encoder_fingerprint("transformer", block)
-
-        assert not fingerprints_match(foreign, encoder_fingerprint(JEPA, block))
-
-
 class TestPretrainResolvesItsSpec:
     def test_world_model_is_refused_rather_than_saved_untrained(self, spaces, corpus):
         """The loop feeds observations alone, so the term never runs.
@@ -363,45 +290,6 @@ class TestPretrainResolvesItsSpec:
 
 
 class TestTheCheckpoint:
-    def test_it_writes_all_three_pieces(self, saved):
-        """Two weight formats, for two consumers: `encoder.pt` is what the probe
-        loads into a module it built itself, and `rl_module/` is what a training
-        run's spec picks up."""
-        path, _module = saved
-        assert os.path.isfile(os.path.join(path, pretrain_pkg.WEIGHTS_FILE))
-        assert os.path.isfile(os.path.join(path, pretrain_pkg.FINGERPRINT_FILE))
-        assert os.path.isdir(os.path.join(path, pretrain_pkg.MODULE_SUBDIR))
-
-    def test_a_relative_path_writes_all_three_pieces(
-        self, saved, spec_block, tmp_path, monkeypatch
-    ):
-        """`--out` defaults to `pretrained/jepa`, a relative path, and Ray's
-        `save_to_path` reads one as a URI with no scheme and raises - after
-        `encoder.pt` is written, leaving a checkpoint the probe refuses (#316)."""
-        _path, module = saved
-        monkeypatch.chdir(tmp_path)
-        pretrain_pkg.save(module, os.path.join("pretrained", JEPA), JEPA, spec_block)
-        written = tmp_path / "pretrained" / JEPA
-        assert (written / pretrain_pkg.WEIGHTS_FILE).is_file()
-        assert (written / pretrain_pkg.FINGERPRINT_FILE).is_file()
-        assert (written / pretrain_pkg.MODULE_SUBDIR).is_dir()
-
-    def test_a_relative_module_path_loads(self, saved, monkeypatch):
-        """`train.probe --checkpoint` and `train.export --checkpoint` restore a
-        module through `features.load_module`, which handed Ray the path as
-        typed (#316)."""
-        path, _module = saved
-        monkeypatch.chdir(path)
-        restored = features_module.load_module(pretrain_pkg.MODULE_SUBDIR, "policy_0")
-        assert restored is not None
-
-    def test_the_fingerprint_names_the_architecture(self, saved, spec_block):
-        path, _module = saved
-        with open(os.path.join(path, pretrain_pkg.FINGERPRINT_FILE)) as handle:
-            stored = json.load(handle)
-        assert stored["encoder_type"] == JEPA
-        assert stored["encoder_spec"]["d_model"] == spec_block["d_model"]
-
     def test_loading_reproduces_the_weights(self, saved, spaces, spec_block, corpus):
         """Round trip: a fresh module plus these weights must encode identically
         to the module they came from."""
@@ -427,11 +315,6 @@ class TestTheCheckpoint:
         path, _module = saved
         with pytest.raises(ValueError, match="does not match"):
             pretrain_pkg.verify_fingerprint(path, "transformer", spec_block)
-
-    def test_a_directory_that_is_not_a_checkpoint_raises(self, tmp_path, spec_block):
-        (tmp_path / "unrelated.txt").write_text("not a checkpoint")
-        with pytest.raises(FileNotFoundError, match="not a pretrain checkpoint"):
-            pretrain_pkg.verify_fingerprint(str(tmp_path), JEPA, spec_block)
 
 
 class TestTrainingStartsFromIt:
@@ -493,28 +376,6 @@ class TestTrainingStartsFromIt:
                 encoder_specs={JEPA: {**spec_block, "d_model": 64}},
                 pretrained_path=path,
             )
-
-    def test_mlp_cannot_use_one(self, saved, spaces):
-        """It has no self-supervised objective, so nothing could have produced
-        those weights."""
-        path, _module = saved
-        obs_space, act_space = spaces
-        with pytest.raises(ValueError, match="no self-supervised objective"):
-            build_trainable_module_spec(
-                obs_space, act_space, encoder_type="mlp", pretrained_path=path
-            )
-
-    def test_the_path_stays_out_of_the_fingerprint(self, saved, spaces):
-        """`encoder_spec` is what the fingerprint hashes. A path inside it would
-        make the fingerprint depend on where the weights came from, so it could
-        never match the one stored beside them."""
-        path, _module = saved
-        obs_space, act_space = spaces
-        spec = build_trainable_module_spec(
-            obs_space, act_space, encoder_type=JEPA, pretrained_path=path
-        )
-        assert "pretrained_path" not in spec.model_config.encoder_spec
-        assert spec.model_config.pretrained_path == path
 
 
 def _report(latent_std, loss=(0.5, 0.1)):

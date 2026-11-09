@@ -72,7 +72,7 @@ docs/provenance.md lists each piece.
 from __future__ import annotations
 
 import copy
-import itertools
+import hashlib
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -144,9 +144,6 @@ JEPA_DEFAULTS = {
     "world_model_coeff": 0.1,
 }
 
-
-#: Distinguishes one encoder's mask generator from the next in the same process.
-_MASK_STREAMS = itertools.count(1)
 
 #: What a mask hides. See the module docstring.
 MASK_AXES = ("level", "time", "random")
@@ -643,6 +640,23 @@ class TorchJEPAEncoder(TorchModel, Encoder):
         self.objective_enabled = True
         self._num_tokens = num_tokens
 
+        #: Stable structural identity of this encoder's mask stream. A digest of
+        #: this, not a process-wide build counter, seeds `_mask_rng`, so adding
+        #: an encoder earlier in the process no longer shifts every later
+        #: encoder's masks (#13). Two encoders built from the same settings share
+        #: the initial stream; only the actor's copy runs the objective, and
+        #: same-settings comparisons should see the same masks.
+        self._mask_signature = (
+            self.layout,
+            self.tokenization,
+            config.d_model,
+            config.num_layers,
+            config.ff_dim,
+            self.mask_axis,
+            self.mask_ratio,
+            self._num_tokens,
+        )
+
         # Pretrained weights are an *initialisation*, so they load last in
         # `__init__` and anything explicit afterwards wins. That ordering is
         # what makes them safe on the two paths that would otherwise be
@@ -678,9 +692,11 @@ class TorchJEPAEncoder(TorchModel, Encoder):
 
         Drawing masks from the global torch RNG meant every forward - including passes that
         train nothing - moved a seeded run's random stream (gym-CDA #185); CBP keeps a generator of
-        its own for the same reason. Seeded from the process's initial seed plus a counter, so
-        `torch.manual_seed` before building makes the masks reproducible and two encoders in
-        one process do not draw identical ones.
+        its own for the same reason. Seeded from the process's initial seed plus a digest of
+        this encoder's structural settings, not a process-wide counter, so build order does not
+        change the stream and `torch.manual_seed` before building still makes it reproducible
+        (#13). Encoders with identical settings share the initial stream; only the actor runs
+        the objective, and comparing two same-settings modules should use the same masks.
 
         Its state lives in the `_mask_state` buffer, so a restored checkpoint continues the
         stream rather than replaying it (#13). The buffer is applied here when a restored
@@ -689,7 +705,9 @@ class TorchJEPAEncoder(TorchModel, Encoder):
         """
         generator = getattr(self, "_mask_generator", None)
         if generator is None:
-            seed = (torch.initial_seed() + next(_MASK_STREAMS)) % (2**63 - 1)
+            signature = repr(self._mask_signature).encode("utf-8")
+            offset = int.from_bytes(hashlib.blake2b(signature, digest_size=8).digest(), "big")
+            seed = (torch.initial_seed() + offset) % (2**63 - 1)
             generator = torch.Generator().manual_seed(seed)
             if self._mask_state.numel():
                 generator.set_state(self._mask_state.cpu())

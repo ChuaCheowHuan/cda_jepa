@@ -19,7 +19,7 @@ it moved here; [docs/migration.md](docs/migration.md) covers what changed.
 ```mermaid
 flowchart LR
     IJ["ijepa fork<br/>git submodule, installed unchanged as src"] -.->|"gather written here;<br/>no runtime import"| CJ["cda_jepa<br/>encoder, module, Learner, pretrainer"]
-    LJ["lejepa fork<br/>git submodule, installed unchanged"] -.->|"installed; SIGReg planned opt-in"| CJ
+    LJ["lejepa fork<br/>git submodule, optional extra"] -.->|"cda-jepa[lejepa];<br/>SIGReg planned opt-in"| CJ
     CJ -->|"entry points gym_cda.encoders<br/>and gym_cda.extensions"| GYM["gym-CDA<br/>builds jepa when a run selects it"]
     GYM -->|"encoder registry, tokenizer, transformer blocks,<br/>PPO Learner, pretrained-weights format, probe corpus"| CJ
 ```
@@ -37,9 +37,9 @@ pip install "gym_continuousDoubleAuction @ git+https://github.com/ChuaCheowHuan/
 pip install "git+https://github.com/ChuaCheowHuan/cda_jepa"
 ```
 
-pip fetches the two forks (git submodules) itself. Installing changes no run. `scipy` is not a
-default dependency: nothing imports LeJEPA yet, so it is only needed with the optional
-`cda-jepa[lejepa]` extra.
+pip fetches I-JEPA's fork (a git submodule) itself. Installing changes no run. LeJEPA is not in
+the default wheel: nothing imports it yet, so `scipy` and the LeJEPA fork are installed only by
+the optional `cda-jepa[lejepa]` extra.
 
 ## Enable
 
@@ -75,12 +75,13 @@ input; positional spread alone no longer keeps it high (#4). A healthy *trained*
 
 ## What comes from the forks
 
-The forks are installed unchanged, byte for byte from pinned commits: I-JEPA's `src` package
-(a top-level package named `src`, because that is how the authors' code imports itself) and the
-`lejepa` package. The encoder does not import either at runtime: the one I-JEPA function it used,
-`apply_masks`, is a `torch.gather` now written here, so a user's own `src/` package cannot shadow
-it (#5). The LeJEPA objective and I-JEPA's block masks are planned as opt-in settings.
-[docs/provenance.md](docs/provenance.md) says what is used, what is not, and why.
+The forks ship unchanged, byte for byte from pinned commits: I-JEPA's `src` package installs by
+default (a top-level package named `src`, because that is how the authors' code imports itself),
+while LeJEPA's `lejepa` package installs only with `cda-jepa[lejepa]`. The encoder does not import
+either at runtime: the one I-JEPA function it used, `apply_masks`, is a `torch.gather` now written
+here, so a user's own `src/` package cannot shadow it (#5). The LeJEPA objective and I-JEPA's
+block masks are planned as opt-in settings. [docs/provenance.md](docs/provenance.md) says what is
+used, what is not, and why.
 
 ## Documentation
 
@@ -95,7 +96,7 @@ package uses from gym-CDA.
 ## License
 
 This package's own code is MIT, the same as gym-CDA, from which it came. The I-JEPA and LeJEPA
-code it installs is CC BY-NC 4.0 (non-commercial); see [NOTICE](NOTICE). The encoder no longer
-imports either fork at runtime (#5), but both still ship in the distribution. Whether an MIT
-package should carry CC BY-NC code at all is
+code is CC BY-NC 4.0 (non-commercial); see [NOTICE](NOTICE). I-JEPA ships in the default wheel;
+LeJEPA is fetched only by `cda-jepa[lejepa]`. The encoder no longer imports either fork at runtime
+(#5). Whether an MIT package should carry CC BY-NC code at all is
 [#24](https://github.com/ChuaCheowHuan/cda_jepa/issues/24).

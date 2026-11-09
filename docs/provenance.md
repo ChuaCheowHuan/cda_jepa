@@ -1,9 +1,10 @@
 # What comes from the I-JEPA and LeJEPA code
 
-Both forks are git submodules pinned to one commit and installed unchanged:
-`third_party/ijepa/src` as the top-level package `src`, `third_party/lejepa/lejepa` as `lejepa`.
-Nothing of theirs is copied into this repository, and nothing of theirs is edited.
-`tests/test_packaging.py` checks every installed file against the submodule, byte for byte.
+Both forks are git submodules pinned to one commit. I-JEPA's `third_party/ijepa/src` is installed
+by default as the top-level package `src`; LeJEPA is optional and `cda-jepa[lejepa]` installs its
+pinned fork as the separate `lejepa` distribution (#19). Nothing of theirs is copied into this
+repository, and nothing of theirs is edited. `tests/test_packaging.py` checks every installed file
+against the submodule, byte for byte.
 
 ## I-JEPA (`src`)
 
@@ -31,9 +32,10 @@ still checks its bytes.
 | `lejepa.multivariate.SlicingUnivariateTest` with `lejepa.univariate.EppsPulley` (SIGReg) | no, planned opt-in | It is a different anti-collapse objective from today's EMA target plus variance hinge; making it the default would change every run. Planned as `"objective": "lejepa"`. It takes its own `torch.Generator`, so it can keep seeded runs reproducible |
 
 `lejepa` imports `scipy` without declaring it. Nothing in this package imports `lejepa` yet
-(SIGReg is planned), so `scipy` is an optional extra, `cda-jepa[lejepa]`, rather than a default
-dependency (#19). The fork's `pyproject.toml` declares `pytest` and `loguru`, which its code does
-not import, and it is not installed from that file: only the `lejepa` directory is mapped in.
+(SIGReg is planned), so the default wheel does not carry it: `cda-jepa[lejepa]` installs the fork
+at the same commit as the submodule plus `scipy` (#19). The fork's `pyproject.toml` declares
+`pytest` and `loguru`, which its code does not import, so installing the extra pulls those too;
+that is the fork's packaging, not this package's.
 
 ## Licence
 

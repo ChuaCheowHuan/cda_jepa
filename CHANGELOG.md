@@ -12,9 +12,11 @@
   contiguous band and keeps the global token visible, instead of silently drawing a random mask
   (#9). `CDAJEPALearner` unwraps RLlib's DDP wrapper before reading the encoder config, so
   `num_learners > 1` no longer raises (#6). The mask generator's state travels in the encoder's
-  `state_dict` as `_mask_state`, so a resumed run continues the stream (#13). The EMA step is one
-  fused `_foreach_lerp_`, non-CPU mask draws happen on the device, and pretraining has an
-  objective-only forward path that skips the discarded policy pass (#14, #12).
+  `state_dict` as `_mask_state`, so a resumed run continues the stream, and its seed now comes from
+  a digest of the encoder's structural settings rather than a process-wide build counter, so build
+  order no longer shifts it (#13). The EMA step is one fused `_foreach_lerp_`, non-CPU mask draws
+  happen on the device, and pretraining has an objective-only forward path that skips the discarded
+  policy pass (#14, #12).
 - **The pretrainer validates its arguments** (`steps`, `batch_size`, `lr`, `log_every`), averages
   `train_loss` over the logging interval so it is comparable with validation, gives validation its
   own seeded mask generator, and runs it with dropout off (#12). `--log-every 0` is an argparse
@@ -24,9 +26,17 @@
   `import cda_jepa.encoder` (#5). The fork still ships unchanged and `test_packaging` still checks
   its bytes.
 - **CI and packaging hygiene.** The workflow has `permissions: contents: read`, actions pinned to
-  commit SHAs, and a Dependabot config for `github-actions` (#20, #21). `scipy` is no longer a
-  default dependency: nothing imports LeJEPA yet, so it is the optional `cda-jepa[lejepa]` extra
-  (#19).
+  commit SHAs, and a Dependabot config for `github-actions` (#20, #21). LeJEPA and `scipy` are no
+  longer installed by default: nothing imports LeJEPA yet, so the default wheel carries only
+  I-JEPA, and `cda-jepa[lejepa]` installs the pinned LeJEPA fork plus `scipy` (#19).
+- **The LeJEPA fork no longer commits `__pycache__`.** The fork at `8f1a7bc` removes the tracked
+  `.pyc` files and ignores bytecode, and this package's submodule pin moved there (#27). An
+  editable install no longer dirties the submodule on the first import.
+- **The gym-CDA-format tests moved upstream.** The fingerprint-merge and checkpoint-format tests
+  that exercised gym-CDA code were removed from `tests/test_pretrain.py`; the equivalent coverage
+  now lives in gym-CDA's `test_pretrained_format.py`, which uses a test encoder with a
+  `pretrained_path` field. This package keeps only its own round-trip and JEPA-spec-mismatch checks
+  (#28).
 - **Tests pruned and hardened.** The variance-hinge gradient test pinned its mask with
   `torch.manual_seed`, which stopped working when masks got their own generator, so the two passes
   it compares saw different masks, and it passed with the hinge detached (#25); it now reseeds the
@@ -40,12 +50,12 @@
   the `saved` fixture.
 - **ruff's lint rules are pinned** (`E4`, `E7`, `E9`, `F`) and `ruff` is in the `test` extra, so
   `ruff check .` and `ruff format --check .` give the same answer on any ruff version.
-- **Docs say what the code does today.** `jepa_latent_std` does not yet detect a collapse (#4),
-  the variance hinge is never fully off (#7), only one Learner works (#6), `level` masks under
-  `level` tokenisation are random (#9). Stale references to gym-CDA paths and old names in the
-  code are fixed (#15). `docs/pretraining.md` loses gym-CDA's section numbers, fixes a broken
-  table, and says to load only trusted checkpoints. `docs/jepa.md` loses its review-fix log; the
-  one note a user needs (old world-model weights do not load) is in `docs/migration.md`.
+- **Docs were brought in line with the fixes above.** The old caveats that `jepa_latent_std`
+  cannot detect a collapse, the variance hinge is never off, only one Learner works, and `level`
+  masks are random are removed. Stale references to gym-CDA paths and old names in the code are
+  fixed (#15). `docs/pretraining.md` lost gym-CDA's section numbers, has a working table, and says
+  to load only trusted checkpoints. `docs/jepa.md` lost its review-fix log; the one note a user
+  needs (old world-model weights do not load) is in `docs/migration.md`.
 - **Agent setup.** `CLAUDE.md`, and two skills in `.claude/skills/`: `jepa-dev-setup` and
   `jepa-collapse-check`, whose script measures the collapse metric on random, identical and
   blind-trunk inputs.
