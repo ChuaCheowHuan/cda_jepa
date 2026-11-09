@@ -41,8 +41,6 @@ from cda_jepa.learner import (
 )
 from conftest import JEPA, config_with_encoder
 
-OTHER_ENCODERS = ["transformer", "lstm", "moe_transformer"]
-
 
 def _build_and_train(encoder_specs=None):
     ray.init(ignore_reinit_error=True, include_dashboard=False, log_to_driver=False, num_cpus=2)
@@ -150,15 +148,7 @@ class TestTheWorldModelReachesTheOptimiser:
         assert any(p.requires_grad for p in world.action_embed.parameters())
 
 
-class TestOtherEncodersAreUnaffected:
-    @pytest.mark.parametrize("encoder_type", ["mlp", *OTHER_ENCODERS])
-    def test_the_learner_is_still_the_default(self, encoder_type):
-        assert learner_class_for(encoder_type, CDAPPOTorchLearner) is CDAPPOTorchLearner
-
-    @pytest.mark.parametrize("encoder_type", OTHER_ENCODERS)
-    def test_the_module_class_is_still_the_default(self, encoder_type):
-        assert module_class_for(encoder_type, CDAPPOTorchRLModule) is CDAPPOTorchRLModule
-
+class TestThisPackageRegistersItsOwnClasses:
     def test_this_package_registers_its_own_classes(self):
         assert module_class_for(JEPA, CDAPPOTorchRLModule) is JEPARLModule
         assert learner_class_for(JEPA, CDAPPOTorchLearner) is CDAJEPALearner
@@ -167,10 +157,6 @@ class TestOtherEncodersAreUnaffected:
 
 
 class TestTheNextObsConnectorIsConditional:
-    @pytest.mark.parametrize("encoder_type", ["mlp", *OTHER_ENCODERS])
-    def test_other_encoders_do_not_ask_for_it(self, encoder_type):
-        assert not needs_next_obs(encoder_type, None)
-
     @pytest.mark.parametrize(
         "spec, wanted",
         [

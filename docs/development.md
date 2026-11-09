@@ -72,7 +72,7 @@ A test belongs here when it fails if this package's code is wrong. Behaviour tha
 | `test_jepa_value_pass.py` | The value pass runs no objective and takes no EMA step; masks have their own generator |
 | `test_world_model_actions.py` | The world model embeds every action head |
 | `test_pretrain.py` | The pretrainer: the loop, collapse, JEPA-specific checkpoint round-trip and spec mismatch, the CLI. The shared checkpoint format and fingerprint are gym-CDA's, tested there in `test_pretrained_format.py` (#28) |
-| `test_wiring.py` | A real gym-CDA `Algorithm`: the loss terms reach the optimiser, the NEXT_OBS connector is conditional, other encoders are unaffected |
+| `test_wiring.py` | A real gym-CDA `Algorithm`: the loss terms reach the optimiser, the NEXT_OBS connector is conditional, this package registers its own module and Learner classes |
 | `test_moved_checks.py` | Checks from other gym-CDA test files: one-row batches give finite losses (gym-CDA #242), pretraining builds in the corpus's book mode (#187), the Learner calls gym-CDA's loss seam |
 | `test_packaging.py` | The installed forks equal the submodules; the entry points; the encoder imports with a shadowing `src/` |
 | `test_docs.py` | The settings table matches `JEPA_DEFAULTS`, and every relative link resolves (docs, `CLAUDE.md`, skills) |

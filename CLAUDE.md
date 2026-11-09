@@ -9,8 +9,9 @@ pretrainer (`cda_jepa/pretrain/`). gym-CDA finds it through the `gym_cda.encoder
 
 1. **The forks are never edited.** `third_party/ijepa` and `third_party/lejepa` are pinned
    submodules installed byte for byte (`tests/test_packaging.py`). Change a pin, not a file.
-2. **Run `python -m pytest -q`**, then `ruff check .` and `ruff format --check .` (CI runs all
-   three). Setup: skill `jepa-dev-setup`.
+2. **Run `python -m pytest -q`**, then `ruff check .` and `ruff format --check .`. CI runs only
+   pytest today (the ruff steps wait on a push with the `workflow` scope, #18), so the ruff pair
+   is yours to run. Setup: skill `jepa-dev-setup`.
 3. **Test first, and show it failing** on the previous source (`git stash push -- cda_jepa`,
    run, `git stash pop`).
 4. **Do not rest a claim on a review.** Reproduce it in a scratch script first, and run the case
