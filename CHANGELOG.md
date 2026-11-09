@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Tests that belonged to gym-CDA removed.** `test_wiring.py` no longer asserts that the
+  other encoders keep the default Learner and module classes, or that they do not ask for the
+  NEXT_OBS connector: that is gym-CDA's registry behaviour and gym-CDA's own
+  `test_encoder_wiring.py` holds the same three assertions (CLAUDE.md rule 6). The test that
+  this package registers its own classes stays.
 - **Fixes from the agent-labelled review issues.**
   `jepa_latent_std` is now the spread across the batch at each masked position, so identical
   observations and a blind trunk read near zero instead of the predictor's positional ~0.87 (#4);
